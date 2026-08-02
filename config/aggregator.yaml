@@ -1,0 +1,27 @@
+kafka:
+  brokers:
+    - "localhost:9092"
+  input_topic: "raw-ticks"
+  output_topic: "normalized-vectors"
+  alert_topic: "health-events"
+  consumer_group: "aggregator-group"
+
+windows:
+  fast_window_sec: 60
+  slow_window_sec: 14400
+
+cusum:
+  slack: 0.5
+  threshold: 5.0
+
+silence:
+  check_interval_sec: 5
+  gap_multiplier: 5.0
+
+profiles:
+  equity:
+    model_key: "equity"
+  options:
+    model_key: "options"
+  crypto:
+    model_key: "equity"
