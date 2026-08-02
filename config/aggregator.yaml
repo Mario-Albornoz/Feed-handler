@@ -25,3 +25,24 @@ profiles:
     model_key: "options"
   crypto:
     model_key: "equity"
+
+exchanges:
+  NYSE:
+    timezone: "America/New_York"
+    premarket_start: "04:00"
+    market_open: "09:30"
+    midday_start: "12:00"
+    close_start: "15:30"
+    market_close: "16:00"
+    afterhours_end: "20:00"
+    trading_weekdays: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+  
+  NASDAQ:
+    timezone: "America/New_York"
+    premarket_start: "04:00"
+    market_open: "09:30"
+    midday_start: "12:00"
+    close_start: "15:30"
+    market_close: "16:00"
+    afterhours_end: "20:00"
+    trading_weekdays: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
