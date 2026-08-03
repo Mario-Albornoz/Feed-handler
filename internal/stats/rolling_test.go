@@ -8,7 +8,7 @@ import (
 // TestWelfordConvergence verifies that the EMA mean converges
 // to the true mean after sufficient observations.
 func TestWelfordConvergence(t *testing.T) {
-	rs := NewRollingStats(60, 14400, 1.0, 0.5)
+	rs := NewRollingStats(60, 14400, 0.5)
 	// Feed 500 ticks with intertick=10ms, spread=0.04, step=0.01, vol=100
 	for i := 0; i < 500; i++ {
 		rs.Update(10.0, 0.04, 0.01, 100.0)
@@ -21,7 +21,7 @@ func TestWelfordConvergence(t *testing.T) {
 
 // TestZScoreNormalTick verifies that a normal tick produces a z-score near zero.
 func TestZScoreNormalTick(t *testing.T) {
-	rs := NewRollingStats(60, 14400, 1.0, 0.5)
+	rs := NewRollingStats(60, 14400, 0.5)
 	for i := 0; i < 200; i++ {
 		rs.Update(10.0, 0.04, 0.01, 100.0)
 	}
@@ -33,7 +33,7 @@ func TestZScoreNormalTick(t *testing.T) {
 
 // TestZScoreAnomalousTick verifies that an extreme tick produces a high z-score.
 func TestZScoreAnomalousTick(t *testing.T) {
-	rs := NewRollingStats(60, 14400, 1.0, 0.5)
+	rs := NewRollingStats(60, 14400, 0.5)
 	for i := 0; i < 200; i++ {
 		rs.Update(10.0, 0.04, 0.01, 100.0)
 	}
@@ -46,7 +46,7 @@ func TestZScoreAnomalousTick(t *testing.T) {
 
 // TestCUSUMAccumulates verifies CUSUM rises during sustained drift.
 func TestCUSUMAccumulates(t *testing.T) {
-	rs := NewRollingStats(60, 14400, 1.0, 0.5)
+	rs := NewRollingStats(60, 14400, 0.5)
 	// Warm up with normal data
 	for i := 0; i < 200; i++ {
 		rs.Update(10.0, 0.04, 0.01, 100.0)
@@ -65,7 +65,7 @@ func TestCUSUMAccumulates(t *testing.T) {
 
 // TestCUSUMResets verifies CUSUM resets when signal returns to normal.
 func TestCUSUMResets(t *testing.T) {
-	rs := NewRollingStats(60, 14400, 1.0, 0.5)
+	rs := NewRollingStats(60, 14400, 0.5)
 	for i := 0; i < 200; i++ {
 		rs.Update(10.0, 0.04, 0.01, 100.0)
 	}
@@ -84,7 +84,7 @@ func TestCUSUMResets(t *testing.T) {
 
 // TestWarmupFlag verifies warmup flag clears after MinObservations ticks.
 func TestWarmupFlag(t *testing.T) {
-	rs := NewRollingStats(60, 14400, 1.0, 0.5)
+	rs := NewRollingStats(60, 14400, 0.5)
 	if rs.IsWarm() {
 		t.Error("should not be warm at start")
 	}
@@ -98,7 +98,7 @@ func TestWarmupFlag(t *testing.T) {
 
 // TestGapFlag verifies gap flag fires when intertick exceeds multiplier * mean.
 func TestGapFlag(t *testing.T) {
-	rs := NewRollingStats(60, 14400, 1.0, 0.5)
+	rs := NewRollingStats(60, 14400, 0.5)
 	for i := 0; i < 100; i++ {
 		rs.Update(10.0, 0.04, 0.01, 100.0)
 	}

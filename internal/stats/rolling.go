@@ -50,10 +50,10 @@ type RollingStats struct {
 }
 
 // NewRollingStats creates a new instance with alpha values derived from
-// the desired effective window sizes.
-// fastWindowTick: target window for fast baseline in ticks
-// slowWindowTick: target window for slowbaseline in ticks
-// expectedTicksPerSec: approximate tick rate for this instrument (used to
+// the desired effective window sizes in ticks.
+// fastWindowTicks: target window for fast baseline in ticks
+// slowWindowTicks: target window for slow baseline in ticks
+// cusumSlack: drift allowance for CUSUM algorithm
 func NewRollingStats(fastWindowTicks, slowWindowTicks, cusumSlack float64) *RollingStats {
 	// EMA alpha from window: alpha = 2 / (N + 1) where N = window in ticks
 	return &RollingStats{

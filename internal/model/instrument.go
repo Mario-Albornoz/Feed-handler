@@ -25,18 +25,11 @@ func NewInstrumentState(fastWindowTicks float64, slowWindowticks float64, cusumS
 		LastTickTime:    time.Time{},
 		PrevMid:         0.0,
 		StatsBySession:  statsBySession,
-		AllSessionStats: stats.NewRollingStats(float64(fastWindowTicks), float64(slowWindowticks), cusumSlack),
+		AllSessionStats: stats.NewRollingStats(fastWindowTicks, slowWindowticks, cusumSlack),
 	}
 }
 
 type InstrumentKey struct {
-	ExchangeName         string
-	InstrumentIdentifier string
-}
-
-func NewInstrumentKey(exchangeName string, instrumentIdentifier string) *InstrumentKey {
-	return &InstrumentKey{
-		ExchangeName:         exchangeName,
-		InstrumentIdentifier: instrumentIdentifier,
-	}
+	Exchange   string
+	Instrument string
 }
