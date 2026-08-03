@@ -51,18 +51,14 @@ type RollingStats struct {
 
 // NewRollingStats creates a new instance with alpha values derived from
 // the desired effective window sizes.
-// fastWindowSec: target window in seconds for fast baseline (~60)
-// slowWindowSec: target window in seconds for slow baseline (~14400 = 4hr)
+// fastWindowTick: target window for fast baseline in ticks
+// slowWindowTick: target window for slowbaseline in ticks
 // expectedTicksPerSec: approximate tick rate for this instrument (used to
-//
-//	convert window seconds into alpha. Use 1.0 if unknown.)
-func NewRollingStats(fastWindowSec, slowWindowSec, expectedTicksPerSec float64, cusumSlack float64) *RollingStats {
+func NewRollingStats(fastWindowTicks, slowWindowTicks, cusumSlack float64) *RollingStats {
 	// EMA alpha from window: alpha = 2 / (N + 1) where N = window in ticks
-	fastN := fastWindowSec * expectedTicksPerSec
-	slowN := slowWindowSec * expectedTicksPerSec
 	return &RollingStats{
-		FastAlpha:       2.0 / (fastN + 1),
-		SlowAlpha:       2.0 / (slowN + 1),
+		FastAlpha:       2.0 / (float64(fastWindowTicks) + 1),
+		SlowAlpha:       2.0 / (float64(slowWindowTicks) + 1),
 		CusumSlack:      cusumSlack,
 		GapMultiplier:   5.0,
 		MinObservations: 50,

@@ -7,6 +7,15 @@ import (
 )
 
 type Orchestrator struct {
-	config          *config.AggregatorConfig
-	sessionResolver *model.SessionResolver
+	config             *config.AggregatorConfig
+	sessionResolver    *model.SessionResolver
+	instrumentRegistry map[model.InstrumentKey]*model.InstrumentState
+}
+
+func NewOrchestrator(cfg *config.AggregatorConfig, resolver *model.SessionResolver) *Orchestrator {
+	return &Orchestrator{
+		config:             cfg,
+		sessionResolver:    resolver,
+		instrumentRegistry: make(map[model.InstrumentKey]*model.InstrumentState),
+	}
 }

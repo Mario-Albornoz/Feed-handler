@@ -29,8 +29,8 @@ type KafkaConfig struct {
 }
 
 type WindowConfig struct {
-	FastWindowSec float64 `yaml:"fast_window_sec"`
-	SlowWindowSec float64 `yaml:"slow_window_sec"`
+	FastWindowTicks float64 `yaml:"fast_window_ticks"`
+	SlowWindowTicks float64 `yaml:"slow_window_ticks"`
 }
 
 type CUSUMConfig struct {

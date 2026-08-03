@@ -7,8 +7,8 @@ kafka:
   consumer_group: "aggregator-group"
 
 windows:
-  fast_window_sec: 60
-  slow_window_sec: 14400
+  fast_window_ticks: 60
+  slow_window_ticks: 14400
 
 cusum:
   slack: 0.5
