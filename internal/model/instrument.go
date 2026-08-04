@@ -29,7 +29,23 @@ func NewInstrumentState(fastWindowTicks float64, slowWindowticks float64, cusumS
 	}
 }
 
+func (instrumentState *InstrumentState) GetStateForBucket(bucket SessionBucket) (*stats.RollingStats, bool) {
+	sessionStats := instrumentState.StatsBySession[bucket]
+
+	if sessionStats.ObservationCount >= sessionStats.MinObservations {
+		return sessionStats, false
+	}
+	return instrumentState.AllSessionStats, true
+}
+
 type InstrumentKey struct {
 	Exchange   string
 	Instrument string
+}
+
+func NewInstrumentKey(exchange string, instrument string) *InstrumentKey {
+	return &InstrumentKey{
+		Exchange:   exchange,
+		Instrument: instrument,
+	}
 }
