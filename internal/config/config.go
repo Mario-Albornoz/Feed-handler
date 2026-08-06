@@ -61,13 +61,120 @@ type ExchangeInfo struct {
 func Load(path string) (*AggregatorConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
+
 	var cfg AggregatorConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("config validation failed: %w", err)
+	}
+
 	return &cfg, nil
+}
+
+// Validate checks if the loaded config is valid
+func (cfg *AggregatorConfig) Validate() error {
+	// Validate Kafka config
+	if len(cfg.Kafka.Brokers) == 0 {
+		return fmt.Errorf("kafka brokers cannot be empty")
+	}
+	if cfg.Kafka.InputTopic == "" {
+		return fmt.Errorf("kafka input_topic cannot be empty")
+	}
+	if cfg.Kafka.OutputTopic == "" {
+		return fmt.Errorf("kafka output_topic cannot be empty")
+	}
+	if cfg.Kafka.AlertTopic == "" {
+		return fmt.Errorf("kafka alert_topic cannot be empty")
+	}
+	if cfg.Kafka.ConsumerGroup == "" {
+		return fmt.Errorf("kafka consumer_group cannot be empty")
+	}
+
+	// Validate Windows config
+	if cfg.Windows.FastWindowTicks <= 0 {
+		return fmt.Errorf("fast_window_ticks must be positive, got %f", cfg.Windows.FastWindowTicks)
+	}
+	if cfg.Windows.SlowWindowTicks <= 0 {
+		return fmt.Errorf("slow_window_ticks must be positive, got %f", cfg.Windows.SlowWindowTicks)
+	}
+	if cfg.Windows.FastWindowTicks >= cfg.Windows.SlowWindowTicks {
+		return fmt.Errorf("fast_window_ticks (%f) must be less than slow_window_ticks (%f)",
+			cfg.Windows.FastWindowTicks, cfg.Windows.SlowWindowTicks)
+	}
+
+	// Validate CUSUM config
+	if cfg.CUSUM.Slack < 0 {
+		return fmt.Errorf("cusum slack must be non-negative, got %f", cfg.CUSUM.Slack)
+	}
+	if cfg.CUSUM.Threshold <= 0 {
+		return fmt.Errorf("cusum threshold must be positive, got %f", cfg.CUSUM.Threshold)
+	}
+
+	// Validate Silence config
+	if cfg.Silence.CheckIntervalSec <= 0 {
+		return fmt.Errorf("silence check_interval_sec must be positive, got %d", cfg.Silence.CheckIntervalSec)
+	}
+	if cfg.Silence.GapMultiplier <= 0 {
+		return fmt.Errorf("silence gap_multiplier must be positive, got %f", cfg.Silence.GapMultiplier)
+	}
+
+	// Validate Profiles
+	if len(cfg.Profiles) == 0 {
+		return fmt.Errorf("at least one instrument profile must be defined")
+	}
+	for name, profile := range cfg.Profiles {
+		if profile.ModelKey == "" {
+			return fmt.Errorf("profile %s has empty model_key", name)
+		}
+	}
+
+	// Validate Exchange info
+	if len(cfg.ExchangeInfo) == 0 {
+		return fmt.Errorf("at least one exchange must be defined")
+	}
+	for exchange, info := range cfg.ExchangeInfo {
+		// Validate timezone
+		_, err := ParseTimezone(info.Timezone)
+		if err != nil {
+			return fmt.Errorf("exchange %s: %w", exchange, err)
+		}
+
+		// Validate time formats
+		times := []struct {
+			name  string
+			value string
+		}{
+			{"premarket_start", info.PreMarketStart},
+			{"market_open", info.MarketOpen},
+			{"midday_start", info.MiddayStart},
+			{"close_start", info.CloseStart},
+			{"market_close", info.MarketClose},
+			{"afterhours_end", info.AfterHoursEnd},
+		}
+
+		for _, t := range times {
+			_, err := ParseTimeOfDay(t.value)
+			if err != nil {
+				return fmt.Errorf("exchange %s: invalid %s (%s): %w", exchange, t.name, t.value, err)
+			}
+		}
+
+		// Validate weekdays
+		if len(info.TradingWeekdays) == 0 {
+			return fmt.Errorf("exchange %s: trading_weekdays cannot be empty", exchange)
+		}
+		_, err = ParseWeekdays(info.TradingWeekdays)
+		if err != nil {
+			return fmt.Errorf("exchange %s: %w", exchange, err)
+		}
+	}
+
+	return nil
 }
 
 func ParseTimeOfDay(s string) (time.Duration, error) {
