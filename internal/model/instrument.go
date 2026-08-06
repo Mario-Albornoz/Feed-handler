@@ -39,13 +39,13 @@ func (instrumentState *InstrumentState) GetStateForBucket(bucket SessionBucket) 
 }
 
 type InstrumentKey struct {
-	Exchange   string
-	Instrument string
+	Source               string
+	InstrumentIdentifier string
 }
 
 func NewInstrumentKey(exchange string, instrument string) *InstrumentKey {
 	return &InstrumentKey{
-		Exchange:   exchange,
-		Instrument: instrument,
+		Source:               exchange,
+		InstrumentIdentifier: instrument,
 	}
 }
