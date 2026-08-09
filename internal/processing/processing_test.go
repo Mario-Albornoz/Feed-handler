@@ -153,7 +153,7 @@ func TestProcessRawTicks_FirstTick(t *testing.T) {
 }
 
 func TestProcessRawTicks_IntertickCalculation(t *testing.T) {
-	processor, _, _ := setupTestProcessor(t)
+	processor, registry, _ := setupTestProcessor(t)
 
 	baseTime := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
 
@@ -195,7 +195,6 @@ func TestProcessRawTicks_IntertickCalculation(t *testing.T) {
 		Source:               "NYSE",
 		InstrumentIdentifier: "AAPL",
 	}
-	registry := processor.instrumentRegistry
 	state := registry.GetOrCreate(key)
 
 	// All-session stats should have 2 observations now

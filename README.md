@@ -1,376 +1,220 @@
 # Feed Handler Aggregator
 
-Real-time market data aggregator with rolling statistics and anomaly detection features.
+A high-throughput market data aggregation system that normalizes raw ticks into feature vectors using learned per-instrument, per-session baselines with no static thresholds.
+
+## Architecture Overview
+
+The aggregator processes raw market ticks and:
+1. Maintains two-timescale exponential moving averages (fast ~60 ticks, slow ~14,400 ticks)
+2. Computes z-scores and CUSUM values for anomaly detection
+3. Monitors feed silence using proportional thresholds (learned per instrument)
+4. Emits normalized vectors and silence alerts to Kafka
+
+**Key Design Principle**: No hardcoded thresholds. Every instrument learns its own expected behavior from observations. A liquid equity ticking every 2ms and a sparse options contract ticking every 4 hours are both monitored using the same code and same parameters.
+
+## Features
+
+- ✅ **AGG-1a**: Session/time-bucket resolution with DST handling
+- ✅ **AGG-1b**: Illiquid-instrument fallback (session-specific → all-sessions)
+- ✅ **AGG-2**: Thread-safe instrument registry with persistence (GOB format)
+- ✅ **AGG-3**: Kafka consumer with graceful shutdown
+- ✅ **AGG-4**: Kafka producer with partition key routing
+- ✅ **AGG-6**: Config loader with validation
+- ✅ **AGG-7**: Main wiring with signal handling
+- 🚧 **AGG-5**: Silence detector (skeleton implemented)
+- 🚧 **AGG-8**: Integration tests (pending)
 
 ## Prerequisites
 
-- Go 1.22 or higher
-- Kafka broker running (for production use)
+- Go 1.22+
+- Kafka cluster (local or remote)
+- Input topic with raw tick data
 
-## Installation
+## Configuration
 
-Install dependencies:
+Edit `config/aggregator.yaml`:
+
+```yaml
+kafka:
+  brokers:
+    - "localhost:9092"
+  input_topic: "raw-ticks"
+  output_topic: "normalized-vectors"
+  alert_topic: "health-events"
+  consumer_group: "aggregator-group"
+
+windows:
+  fast_window_ticks: 60       # Fast baseline window in ticks
+  slow_window_ticks: 14400    # Slow baseline window in ticks
+
+cusum:
+  slack: 0.5                  # CUSUM drift allowance
+  threshold: 5.0              # CUSUM alert threshold
+
+silence:
+  check_interval_sec: 5       # How often to check for silence
+  gap_multiplier: 5.0         # Alert when elapsed > 5x learned mean
+
+exchanges:
+  NYSE:
+    timezone: "America/New_York"
+    premarket_start: "04:00"
+    market_open: "09:30"
+    midday_start: "12:00"
+    close_start: "15:30"
+    market_close: "16:00"
+    afterhours_end: "20:00"
+    trading_weekdays: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+```
+
+## Building
 
 ```bash
-go mod tidy
+# Build binary
+go build -o aggregator ./cmd/aggregator
+
+# Or use go run
+go run ./cmd/aggregator
+```
+
+## Running
+
+```bash
+# Use default config path (config/aggregator.yaml)
+./aggregator
+
+# Specify custom config path
+./aggregator /path/to/config.yaml
+
+# Or via environment variable
+AGGREGATOR_CONFIG=/path/to/config.yaml ./aggregator
+
+# Override registry path (default: data/registry.gob)
+REGISTRY_PATH=/path/to/registry.gob ./aggregator
+```
+
+## Data Flow
+
+```
+Raw Ticks (Kafka)
+    ↓
+Consumer (AGG-3)
+    ↓
+FeedProcessor (processes each tick)
+    ├─→ Session Resolution (AGG-1a)
+    ├─→ Registry Lookup/Create (AGG-2)
+    ├─→ Stats Update (fast + slow EMAs)
+    ├─→ Fallback Selection (AGG-1b)
+    ├─→ Z-score Calculation
+    ├─→ Flag Computation
+    └─→ Vector Emission
+           ↓
+Producer (AGG-4) → Kafka (normalized-vectors topic)
+
+Silence Detector (AGG-5) - Independent goroutine
+    ├─→ Scans registry every N seconds
+    ├─→ Compares elapsed time vs learned threshold
+    └─→ Emits alerts → Kafka (health-events topic)
+```
+
+## Graceful Shutdown
+
+Press `Ctrl+C` or send `SIGTERM`:
+1. Stops consuming new ticks
+2. Cancels silence detector
+3. Flushes pending Kafka writes
+4. Saves registry to disk (preserves learned baselines)
+5. Exits cleanly
+
+On restart, the aggregator loads the saved registry, so instruments that were warm remain warm.
+
+## Testing
+
+```bash
+# Run all tests
+go test ./...
+
+# Run with verbose output
+go test -v ./...
+
+# Run tests for a specific package
+go test ./internal/processing/...
+
+# Run specific test
+go test -v -run TestProcessRawTicks_FirstTick ./internal/processing/...
 ```
 
 ## Project Structure
 
 ```
-feed-handler/
-├── cmd/
-│   └── aggregator/
-│       └── main.go              # Application entry point
+feed-handler-aggregator/
+├── cmd/aggregator/main.go           # Entry point and wiring
 ├── internal/
-│   ├── config/
-│   │   └── config.go            # Configuration loading and parsing
-│   ├── stats/
-│   │   ├── rolling.go           # Two-timescale rolling statistics (Welford's algorithm)
-│   │   └── rolling_test.go      # Unit tests for rolling stats
-│   ├── kafka/                   # Kafka consumer/producer (to be implemented)
-│   ├── model/                   # Data models (to be implemented)
-│   ├── normalizer/              # Tick normalization logic (to be implemented)
-│   └── silence/                 # Silence detection (to be implemented)
+│   ├── config/                      # Config loading and validation
+│   │   ├── config.go
+│   │   └── config_test.go
+│   ├── kafka/                       # Kafka consumer and producer
+│   │   ├── consumer.go
+│   │   ├── consumer_test.go
+│   │   ├── producer.go
+│   │   └── producer_test.go
+│   ├── model/                       # Core data structures
+│   │   ├── alert.go
+│   │   ├── instrument.go
+│   │   ├── raw_tick.go
+│   │   ├── registry.go
+│   │   ├── registry_test.go
+│   │   ├── session.go
+│   │   ├── session_test.go
+│   │   └── vector.go
+│   ├── processing/                  # Core tick processing logic
+│   │   ├── processing.go
+│   │   └── processing_test.go
+│   ├── silence/                     # Silence detection (Phase 3)
+│   │   └── detector.go
+│   └── stats/                       # Rolling statistics (EMA, CUSUM)
+│       ├── rolling.go
+│       └── rolling_test.go
 ├── config/
-│   ├── aggregator.yaml          # Main configuration file
-│   └── profiles/                # Instrument class profiles
-├── .cursor/
-│   └── skills/                  # Project-specific Cursor skills
-└── go.mod                       # Go module definition
+│   └── aggregator.yaml              # Configuration file
+├── data/                            # Registry persistence (created at runtime)
+│   └── registry.gob
+└── go.mod
 ```
 
-## Running Tests
+## Performance Characteristics
 
-### Run all tests
+- **Throughput**: Designed for 700k+ ticks/sec
+- **Memory**: Registry grows with unique instruments (typically thousands)
+- **Latency**: Sub-millisecond processing per tick
+- **Concurrency**: Thread-safe registry with read-optimized double-checked locking
 
-```bash
-go test ./...
-```
+## Monitoring
 
-### Run tests with verbose output
+The aggregator logs:
+- Startup configuration
+- Registry load/save operations
+- Tick processing errors
+- Kafka producer/consumer issues
+- Graceful shutdown progress
 
-```bash
-go test ./... -v
-```
+Future: Export Prometheus metrics for:
+- Ticks processed/sec
+- Vectors emitted/sec
+- Alerts emitted/sec
+- Registry size
+- Per-exchange throughput
 
-### Run tests for a specific package
+## Known Limitations
 
-```bash
-# Test rolling statistics
-go test ./internal/stats/... -v
+1. **Warmup Period**: New instruments require `MinObservations` (default 50) ticks before statistics are reliable. During warmup, `WarmupFlag=1` is set.
 
-# Test config loading
-go test ./internal/config/... -v
-```
+2. **Never-Ticked Instruments**: Instruments expected to exist but never observed (e.g., new listings) are invisible to silence detection until they send at least one tick.
 
-### Run a specific test
+3. **Baseline Drift During Decline**: If an instrument experiences gradual decline (Phase 1) before complete silence, the silence threshold may be inflated, increasing detection lag.
 
-```bash
-go test ./internal/stats/... -run TestWelfordConvergence -v
-```
+4. **Multi-Day Drift**: Very slow drift over multiple days may be undetected if it never exceeds CUSUM threshold. This is a documented limitation for Phase 1 detection.
 
-## Building the Program
+## License
 
-Build the aggregator binary:
-
-```bash
-go build -o bin/aggregator ./cmd/aggregator
-```
-
-## Running the Program
-
-### Run directly with Go
-
-```bash
-go run ./cmd/aggregator
-```
-
-### Run the compiled binary
-
-```bash
-./bin/aggregator
-```
-
-The program expects the configuration file at `config/aggregator.yaml`.
-
-## Configuration
-
-Edit `config/aggregator.yaml` to configure:
-
-- Kafka brokers and topics
-- Rolling statistics windows (fast/slow)
-- CUSUM parameters
-- Silence detection settings
-- Instrument class profiles
-
-## Development Workflow
-
-### 1. Setting up your development environment
-
-Clone the repository and install dependencies:
-
-```bash
-git clone <repository-url>
-cd feed-handler
-go mod tidy
-```
-
-### 2. Run tests before making changes
-
-Always start by ensuring existing tests pass:
-
-```bash
-go test ./... -v
-```
-
-### 3. Make your changes
-
-Follow the project structure conventions:
-- Business logic goes in `internal/`
-- Entry points go in `cmd/`
-- Configuration files go in `config/`
-- Keep packages focused and single-purpose
-
-### 4. Write tests for your changes
-
-Add tests alongside your code (see "Adding Tests" section below).
-
-### 5. Run tests again
-
-```bash
-go test ./... -v
-```
-
-### 6. Build and verify
-
-```bash
-go build -o bin/aggregator ./cmd/aggregator
-./bin/aggregator
-```
-
-## Adding New Features
-
-### Adding a new internal package
-
-1. Create the package directory under `internal/`:
-
-```bash
-mkdir -p internal/yourpackage
-```
-
-2. Create your Go file:
-
-```bash
-touch internal/yourpackage/yourfile.go
-```
-
-3. Define the package:
-
-```go
-package yourpackage
-
-// Your code here
-```
-
-4. Create corresponding test file:
-
-```bash
-touch internal/yourpackage/yourfile_test.go
-```
-
-### Adding new configuration options
-
-1. Update the config struct in `internal/config/config.go`:
-
-```go
-type AggregatorConfig struct {
-    // ... existing fields
-    YourNewSection YourNewConfig `yaml:"your_section"`
-}
-
-type YourNewConfig struct {
-    OptionOne string `yaml:"option_one"`
-    OptionTwo int    `yaml:"option_two"`
-}
-```
-
-2. Update `config/aggregator.yaml`:
-
-```yaml
-your_section:
-  option_one: "value"
-  option_two: 42
-```
-
-### Module dependencies
-
-Add new dependencies:
-
-```bash
-go get github.com/some/package
-```
-
-Update dependencies:
-
-```bash
-go get -u ./...
-go mod tidy
-```
-
-## Adding Tests
-
-### Create a new test file
-
-Test files must end with `_test.go` and be in the same package as the code being tested.
-
-Example structure:
-
-```go
-package stats
-
-import "testing"
-
-func TestYourFeature(t *testing.T) {
-    // Arrange
-    rs := NewRollingStats(60, 14400, 1.0, 0.5)
-    
-    // Act
-    rs.Update(10.0, 0.04, 0.01, 100.0)
-    
-    // Assert
-    if rs.Count != 1 {
-        t.Errorf("expected count=1, got %d", rs.Count)
-    }
-}
-```
-
-### Test file naming convention
-
-- Main code: `internal/stats/rolling.go`
-- Test code: `internal/stats/rolling_test.go`
-
-### Run your new tests
-
-```bash
-go test ./internal/stats/... -v
-```
-
-### Table-driven tests
-
-For testing multiple scenarios:
-
-```go
-func TestMultipleScenarios(t *testing.T) {
-    tests := []struct {
-        name     string
-        input    float64
-        expected float64
-    }{
-        {"positive value", 10.0, 10.0},
-        {"negative value", -5.0, 5.0},
-        {"zero value", 0.0, 0.0},
-    }
-    
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            result := yourFunction(tt.input)
-            if result != tt.expected {
-                t.Errorf("got %v, want %v", result, tt.expected)
-            }
-        })
-    }
-}
-```
-
-## Code Style and Conventions
-
-### Formatting
-
-Format your code before committing:
-
-```bash
-go fmt ./...
-```
-
-### Linting
-
-Run the linter to catch common issues:
-
-```bash
-go vet ./...
-```
-
-### Package naming
-
-- Use lowercase, single-word package names
-- Package name should match directory name
-- Avoid generic names like `util` or `common`
-
-### Error handling
-
-Always handle errors explicitly:
-
-```go
-result, err := someOperation()
-if err != nil {
-    return fmt.Errorf("operation failed: %w", err)
-}
-```
-
-### Exported vs unexported
-
-- Exported (public): Start with uppercase letter
-- Unexported (private): Start with lowercase letter
-
-```go
-// Exported - can be used by other packages
-type RollingStats struct { ... }
-
-// Unexported - internal to package only
-func updateEMA(...) { ... }
-```
-
-## Debugging
-
-### Print debugging
-
-```go
-import "log"
-
-log.Printf("Debug: value=%v", someValue)
-```
-
-### Run with race detector
-
-```bash
-go test -race ./...
-go run -race ./cmd/aggregator
-```
-
-## Common Development Tasks
-
-### Check for compilation errors
-
-```bash
-go build ./...
-```
-
-### View test coverage
-
-```bash
-go test ./... -cover
-```
-
-### Generate detailed coverage report
-
-```bash
-go test ./... -coverprofile=coverage.out
-go tool cover -html=coverage.out
-```
-
-### Clean build cache
-
-```bash
-go clean -cache
-```
+MIT
