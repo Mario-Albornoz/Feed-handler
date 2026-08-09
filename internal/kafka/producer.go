@@ -15,9 +15,15 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
+// MessageWriter interface for writing Kafka messages
+type MessageWriter interface {
+	WriteMessages(ctx context.Context, msgs ...kafka.Message) error
+	Close() error
+}
+
 type Producer struct {
-	vectorProducer *kafka.Writer
-	alertProducer  *kafka.Writer
+	vectorProducer MessageWriter
+	alertProducer  MessageWriter
 
 	vectorsWritten uint64
 	alertsWritten  uint64
@@ -51,7 +57,7 @@ func NewProducer(vectorTopicName string, alertsTopicName string, kafkaURL string
 	}
 }
 
-func (p *Producer) WriteVector(ctx context.Context, vector model.NormalizedVector) error {
+func (p *Producer) WriteVector(ctx context.Context, vector *model.NormalizedVector) error {
 
 	jsonMessage, err := json.Marshal(vector)
 	if err != nil {
@@ -70,11 +76,11 @@ func (p *Producer) WriteVector(ctx context.Context, vector model.NormalizedVecto
 	}
 
 	atomic.AddUint64(&p.vectorsFailed, 1)
-	log.Printf("dropped vector: instrument=%s topic=%s error=%v", vector.Instrument, p.vectorProducer.Topic, err)
+	log.Printf("dropped vector: instrument=%s error=%v", vector.Instrument, err)
 	return fmt.Errorf("writing vector for %s: %w", vector.Instrument, err)
 }
 
-func (p *Producer) WriteAlert(ctx context.Context, alert model.SilenceAlert) error {
+func (p *Producer) WriteAlert(ctx context.Context, alert *model.SilenceAlert) error {
 
 	jsonMessage, err := json.Marshal(alert)
 	if err != nil {
@@ -93,7 +99,7 @@ func (p *Producer) WriteAlert(ctx context.Context, alert model.SilenceAlert) err
 	}
 
 	atomic.AddUint64(&p.alertsFailed, 1)
-	log.Printf("dropped alert: instrument=%s topic=%s error=%v", alert.InstrumentIdentifier, p.vectorProducer.Topic, err)
+	log.Printf("dropped alert: instrument=%s error=%v", alert.InstrumentIdentifier, err)
 	return fmt.Errorf("writing alert for %s: %w", alert.InstrumentIdentifier, err)
 }
 
