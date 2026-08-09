@@ -30,7 +30,7 @@ func NewProducer(vectorTopicName string, alertsTopicName string, kafkaURL string
 		vectorProducer: &kafka.Writer{
 			Addr:         kafka.TCP(kafkaURL),
 			Topic:        vectorTopicName,
-			Balancer:     &kafka.LeastBytes{},
+			Balancer:     &kafka.Hash{},
 			BatchTimeout: 15 * time.Millisecond,
 			BatchSize:    500,
 			RequiredAcks: kafka.RequireOne,
@@ -41,7 +41,7 @@ func NewProducer(vectorTopicName string, alertsTopicName string, kafkaURL string
 		alertProducer: &kafka.Writer{
 			Addr:         kafka.TCP(kafkaURL),
 			Topic:        alertsTopicName,
-			Balancer:     &kafka.LeastBytes{},
+			Balancer:     &kafka.Hash{},
 			BatchTimeout: 5 * time.Millisecond,
 			BatchSize:    10,
 			RequiredAcks: kafka.RequireOne,
@@ -61,7 +61,7 @@ func (p *Producer) WriteVector(ctx context.Context, vector model.NormalizedVecto
 	}
 
 	err = p.vectorProducer.WriteMessages(ctx, kafka.Message{
-		Key:   []byte(vector.Instrument),
+		Key:   []byte(vector.Exchange + ":" + vector.ModelKey),
 		Value: jsonMessage,
 	})
 	if err == nil {
@@ -84,7 +84,7 @@ func (p *Producer) WriteAlert(ctx context.Context, alert model.SilenceAlert) err
 	}
 
 	err = p.alertProducer.WriteMessages(ctx, kafka.Message{
-		Key:   []byte(alert.InstrumentIdentifier),
+		Key:   []byte(alert.Exchange + ":SILENCE"),
 		Value: jsonMessage,
 	})
 	if err == nil {
@@ -92,7 +92,7 @@ func (p *Producer) WriteAlert(ctx context.Context, alert model.SilenceAlert) err
 		return nil
 	}
 
-	atomic.AddUint64(&p.vectorsFailed, 1)
+	atomic.AddUint64(&p.alertsFailed, 1)
 	log.Printf("dropped alert: instrument=%s topic=%s error=%v", alert.InstrumentIdentifier, p.vectorProducer.Topic, err)
 	return fmt.Errorf("writing alert for %s: %w", alert.InstrumentIdentifier, err)
 }

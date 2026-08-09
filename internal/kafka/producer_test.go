@@ -1,8 +1,10 @@
 package kafka
 
-import {
+import (
 	"testing"
+)
+
+// TODO: Add producer tests
+func TestPlaceholder(t *testing.T) {
+	// Placeholder test to make package compile
 }
-
-
-func Test
