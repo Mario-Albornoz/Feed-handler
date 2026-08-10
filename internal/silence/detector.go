@@ -48,7 +48,7 @@ func (d *Detector) Run(ctx context.Context) error {
 	ticker := time.NewTicker(d.checkInterval)
 	defer ticker.Stop()
 
-	log.Printf("Silence detector started (check interval: %v, gap multiplier: %.1f)", 
+	log.Printf("Silence detector started (check interval: %v, gap multiplier: %.1f)",
 		d.checkInterval, d.gapMultiplier)
 
 	for {
@@ -66,22 +66,37 @@ func (d *Detector) Run(ctx context.Context) error {
 // checking for silence that exceeds the learned threshold.
 func (d *Detector) scan(ctx context.Context) {
 	now := time.Now()
-	
-	// TODO AGG-5: Implement silence detection logic
-	// 1. Iterate over registry.All() snapshot
-	// 2. For each instrument:
-	//    - Resolve current session bucket (not the bucket of last tick!)
-	//    - Get session-specific stats via GetStateForBucket (with AGG-1b fallback)
-	//    - Skip if ObservationCount < MinObservations (not warmed up)
-	//    - Skip if SlowMeanIntertick <= 0 or LastTickTime.IsZero()
-	//    - Compute: elapsed = now - LastTickTime
-	//    - Alert if: elapsed > gapMultiplier × stats.SlowMeanIntertick
-	// 3. Emit SilenceAlert via alertEmitter
-	//
-	// Key points:
-	// - Use SlowMeanIntertick (stable baseline), not FastMeanIntertick
-	// - Current session may differ from session of last tick (silence spans sessions)
-	// - Same code path for all instruments; proportional threshold scales automatically
-	
+
+	for instrument, _ := range d.registry.All() {
+		currentSession, err := d.resolver.ResolveSessionBucket(time.Now(), instrument.Source)
+		if err != nil {
+			log.Printf("Error retriving current session bucket for exchange %v : %v", instrument.Source, err)
+		}
+		instrumentState := d.registry.GetOrCreate(instrument)
+		bucketSessionStat, isPresent := instrumentState.GetStateForBucket(currentSession)
+		if !isPresent {
+			log.Printf("No bucketSessionStats for %v", instrumentState)
+			continue
+		}
+		if !bucketSessionStat.IsWarm() {
+			continue
+		} else if bucketSessionStat.ObservationCount < bucketSessionStat.MinObservations {
+			continue
+		} else if bucketSessionStat.SlowMeanIntertick <= 0 || bucketSessionStat.LastTickTime.IsZero() {
+			continue
+		}
+
+		elapsed := now - bucketSessionStat.LastTickTime
+
+		if elapsed > d.gapMultiplier {
+			alert := model.NewAlert(instrument.InstrumentIdentifier, instrument.Source, model.Medium)
+			d.alertEmitter.WriteAlert(ctx, alert)
+		}
+	}
 	_ = now // Suppress unused warning until implementation
+}
+
+func (d Detector) determineLatencyLevel(elapsed time.Time) *model.LatencyLevels {
+	if elapsed > d.gapMultiplier*3 {
+	}
 }
