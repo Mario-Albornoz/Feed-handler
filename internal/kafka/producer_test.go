@@ -89,9 +89,13 @@ func TestProducer_WriteAlert_Success(t *testing.T) {
 	}
 
 	alert := &model.SilenceAlert{
-		InstrumentIdentifier: "AAPL",
-		Exchange:             "NYSE",
-		LatencyLevel:         3,
+		Instrument:       "AAPL",
+		Exchange:         "NYSE",
+		AlertType:        "SILENCE",
+		LatencyLevel:     "MEDIUM",
+		ElapsedMs:        1000,
+		ExpectedInterval: 100.0,
+		Timestamp:        time.Now(),
 	}
 
 	err := producer.WriteAlert(context.Background(), alert)

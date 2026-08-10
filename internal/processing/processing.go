@@ -11,7 +11,6 @@ import (
 
 type VectorEmitter interface {
 	WriteVector(ctx context.Context, vector *model.NormalizedVector) error
-	WriteAlert(ctx context.Context, alet *model.SilenceAlert) error
 }
 
 type FeedProcessor struct {

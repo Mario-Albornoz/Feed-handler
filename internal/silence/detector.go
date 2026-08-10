@@ -8,28 +8,24 @@ import (
 	"time"
 
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/model"
-	"github.com/mario-albornoz/feed-handler-aggregator/internal/processing"
 )
 
-// Detector monitors instruments for unexpected silence by comparing elapsed time
-// since last tick against each instrument's learned mean inter-tick interval.
-// Uses proportional thresholds (gap_multiplier × learned_mean) so liquid and
-// illiquid instruments are both monitored with the same universal parameters.
+type AlertEmitter interface {
+	WriteAlert(ctx context.Context, alert *model.SilenceAlert) error
+}
+
 type Detector struct {
 	registry      *model.InstrumentRegistry
 	resolver      *model.SessionResolver
-	alertEmitter  processing.VectorEmitter // Reuses the same interface, writes SilenceAlerts
+	alertEmitter  AlertEmitter
 	gapMultiplier float64
 	checkInterval time.Duration
 }
 
-// NewDetector creates a new silence detector.
-// gapMultiplier: universal ratio applied to learned mean (e.g., 5.0 = alert after 5x normal interval)
-// checkInterval: how often to scan the registry (e.g., every 5 seconds)
 func NewDetector(
 	registry *model.InstrumentRegistry,
 	resolver *model.SessionResolver,
-	alertEmitter processing.VectorEmitter,
+	alertEmitter AlertEmitter,
 	gapMultiplier float64,
 	checkInterval time.Duration,
 ) *Detector {
@@ -66,37 +62,66 @@ func (d *Detector) Run(ctx context.Context) error {
 // checking for silence that exceeds the learned threshold.
 func (d *Detector) scan(ctx context.Context) {
 	now := time.Now()
+	alertCount := 0
 
-	for instrument, _ := range d.registry.All() {
-		currentSession, err := d.resolver.ResolveSessionBucket(time.Now(), instrument.Source)
+	instruments := d.registry.All()
+
+	for key, state := range instruments {
+		currentBucket, err := d.resolver.ResolveSessionBucket(now, key.Source)
 		if err != nil {
-			log.Printf("Error retriving current session bucket for exchange %v : %v", instrument.Source, err)
-		}
-		instrumentState := d.registry.GetOrCreate(instrument)
-		bucketSessionStat, isPresent := instrumentState.GetStateForBucket(currentSession)
-		if !isPresent {
-			log.Printf("No bucketSessionStats for %v", instrumentState)
-			continue
-		}
-		if !bucketSessionStat.IsWarm() {
-			continue
-		} else if bucketSessionStat.ObservationCount < bucketSessionStat.MinObservations {
-			continue
-		} else if bucketSessionStat.SlowMeanIntertick <= 0 || bucketSessionStat.LastTickTime.IsZero() {
+			log.Printf("Failed to resolve session for %s/%s: %v", key.Source, key.InstrumentIdentifier, err)
 			continue
 		}
 
-		elapsed := now - bucketSessionStat.LastTickTime
+		relevantStats, _ := state.GetStateForBucket(currentBucket)
 
-		if elapsed > d.gapMultiplier {
-			alert := model.NewAlert(instrument.InstrumentIdentifier, instrument.Source, model.Medium)
-			d.alertEmitter.WriteAlert(ctx, alert)
+		if relevantStats.ObservationCount < relevantStats.MinObservations {
+			continue
+		}
+
+		if relevantStats.SlowMeanIntertick <= 0 {
+			continue
+		}
+
+		if state.LastTickTime.IsZero() {
+			continue
+		}
+
+		elapsed := now.Sub(state.LastTickTime)
+		elapsedMs := float64(elapsed.Milliseconds())
+
+		// Calculate threshold: gap_multiplier × learned mean interval
+		thresholdMs := d.gapMultiplier * relevantStats.SlowMeanIntertick
+
+		// Alert if silence exceeds threshold
+		if elapsedMs > thresholdMs {
+			alert := &model.SilenceAlert{
+				Exchange:         key.Source,
+				Instrument:       key.InstrumentIdentifier,
+				AlertType:        "SILENCE",
+				LastSeen:         state.LastTickTime,
+				ElapsedMs:        int64(elapsedMs),
+				ExpectedInterval: relevantStats.SlowMeanIntertick,
+				LatencyLevel:     model.DetermineLatencyLevel(elapsedMs, relevantStats.SlowMeanIntertick),
+				Timestamp:        now,
+			}
+
+			if err := d.emitAlert(ctx, alert); err != nil {
+				log.Printf("Failed to emit silence alert for %s/%s: %v",
+					key.Source, key.InstrumentIdentifier, err)
+			} else {
+				alertCount++
+			}
 		}
 	}
-	_ = now // Suppress unused warning until implementation
+
+	if alertCount > 0 {
+		log.Printf("Silence scan complete: %d alerts emitted (scanned %d instruments)",
+			alertCount, len(instruments))
+	}
 }
 
-func (d Detector) determineLatencyLevel(elapsed time.Time) *model.LatencyLevels {
-	if elapsed > d.gapMultiplier*3 {
-	}
+// emitAlert writes the silence alert to Kafka
+func (d *Detector) emitAlert(ctx context.Context, alert *model.SilenceAlert) error {
+	return d.alertEmitter.WriteAlert(ctx, alert)
 }

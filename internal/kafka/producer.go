@@ -99,8 +99,8 @@ func (p *Producer) WriteAlert(ctx context.Context, alert *model.SilenceAlert) er
 	}
 
 	atomic.AddUint64(&p.alertsFailed, 1)
-	log.Printf("dropped alert: instrument=%s error=%v", alert.InstrumentIdentifier, err)
-	return fmt.Errorf("writing alert for %s: %w", alert.InstrumentIdentifier, err)
+	log.Printf("dropped alert: instrument=%s error=%v", alert.Instrument, err)
+	return fmt.Errorf("writing alert for %s: %w", alert.Instrument, err)
 }
 
 func (p *Producer) Close() error {
