@@ -14,15 +14,15 @@ The aggregator processes raw market ticks and:
 
 ## Features
 
-- ✅ **AGG-1a**: Session/time-bucket resolution with DST handling
-- ✅ **AGG-1b**: Illiquid-instrument fallback (session-specific → all-sessions)
-- ✅ **AGG-2**: Thread-safe instrument registry with persistence (GOB format)
-- ✅ **AGG-3**: Kafka consumer with graceful shutdown
-- ✅ **AGG-4**: Kafka producer with partition key routing
-- ✅ **AGG-5**: Silence detector with learned thresholds
-- ✅ **AGG-6**: Config loader with validation
-- ✅ **AGG-7**: Main wiring with signal handling
-- ✅ **AGG-8**: Integration tests with Docker Compose
+-  Session/time-bucket resolution with DST handling
+-  Illiquid-instrument fallback (session-specific → all-sessions)
+-  Thread-safe instrument registry with persistence (GOB format)
+-  Kafka consumer with graceful shutdown
+-  Kafka producer with partition key routing
+-  Silence detector with learned thresholds
+-  Config loader with validation
+-  Main wiring with signal handling
+-  Integration tests with Docker Compose
 
 ## Prerequisites
 
@@ -227,10 +227,7 @@ feed-handler-aggregator/
 
 ## Performance Characteristics
 
-- **Throughput**: Designed for 700k+ ticks/sec
-- **Memory**: Registry grows with unique instruments (typically thousands)
-- **Latency**: Sub-millisecond processing per tick
-- **Concurrency**: Thread-safe registry with read-optimized double-checked locking
+TBD
 
 ## Monitoring
 
