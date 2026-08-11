@@ -101,17 +101,17 @@ Raw Ticks (Kafka)
 Consumer (AGG-3)
     ↓
 FeedProcessor (processes each tick)
-    ├─→ Session Resolution (AGG-1a)
-    ├─→ Registry Lookup/Create (AGG-2)
+    ├─→ Session Resolution
+    ├─→ Registry Lookup/Create 
     ├─→ Stats Update (fast + slow EMAs)
-    ├─→ Fallback Selection (AGG-1b)
+    ├─→ Fallback Selection 
     ├─→ Z-score Calculation
     ├─→ Flag Computation
     └─→ Vector Emission
            ↓
-Producer (AGG-4) → Kafka (normalized-vectors topic)
+Producer → Kafka (normalized-vectors topic)
 
-Silence Detector (AGG-5) - Independent goroutine
+Silence Detector  - Independent goroutine
     ├─→ Scans registry every N seconds
     ├─→ Compares elapsed time vs learned threshold
     └─→ Emits alerts → Kafka (health-events topic)
@@ -168,9 +168,9 @@ docker compose -f docker-compose.test.yml down -v
 
 **Integration test coverage:**
 - `TestEndToEndNormalFlow` - Basic tick → vector pipeline
-- `TestPartitionKeyConsistency` - AGG-4 regression (partition keys)
+- `TestPartitionKeyConsistency` - regression (partition keys)
 - `TestQuoteInversionDetection` - Phase 4 quote inversion detection
-- `TestSilenceDetection` - AGG-5 regression (requires aggregator running)
+- `TestSilenceDetection` - regression (requires aggregator running)
 
 See `test/integration/README.md` for full details.
 
