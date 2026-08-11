@@ -19,10 +19,10 @@ The aggregator processes raw market ticks and:
 - ✅ **AGG-2**: Thread-safe instrument registry with persistence (GOB format)
 - ✅ **AGG-3**: Kafka consumer with graceful shutdown
 - ✅ **AGG-4**: Kafka producer with partition key routing
+- ✅ **AGG-5**: Silence detector with learned thresholds
 - ✅ **AGG-6**: Config loader with validation
 - ✅ **AGG-7**: Main wiring with signal handling
-- 🚧 **AGG-5**: Silence detector (skeleton implemented)
-- 🚧 **AGG-8**: Integration tests (pending)
+- ✅ **AGG-8**: Integration tests with Docker Compose
 
 ## Prerequisites
 
@@ -130,25 +130,68 @@ On restart, the aggregator loads the saved registry, so instruments that were wa
 
 ## Testing
 
+### Unit Tests
+
 ```bash
-# Run all tests
-go test ./...
+# Run all unit tests
+go test ./internal/... -v
 
-# Run with verbose output
-go test -v ./...
+# With race detection
+go test ./internal/... -v -race
 
-# Run tests for a specific package
-go test ./internal/processing/...
+# With coverage
+go test ./internal/... -v -cover
 
-# Run specific test
+# Specific package
+go test ./internal/processing/... -v
+
+# Specific test
 go test -v -run TestProcessRawTicks_FirstTick ./internal/processing/...
+```
+
+### Integration Tests
+
+Integration tests validate end-to-end flow using a local Kafka cluster.
+
+```bash
+# Using Makefile (recommended)
+make kafka-up                # Start Kafka via Docker Compose
+make test-integration        # Run integration tests (skips slow tests)
+make kafka-down              # Cleanup
+
+# Manual execution
+docker-compose -f docker-compose.test.yml up -d
+sleep 30  # Wait for Kafka to initialize
+INTEGRATION_TEST=1 go test ./test/integration/... -v -short
+docker-compose -f docker-compose.test.yml down -v
+```
+
+**Integration test coverage:**
+- `TestEndToEndNormalFlow` - Basic tick → vector pipeline
+- `TestPartitionKeyConsistency` - AGG-4 regression (partition keys)
+- `TestQuoteInversionDetection` - Phase 4 quote inversion detection
+- `TestSilenceDetection` - AGG-5 regression (requires aggregator running)
+
+See `test/integration/README.md` for full details.
+
+### All Tests
+
+```bash
+# Run everything (unit + integration)
+make test
 ```
 
 ## Project Structure
 
 ```
 feed-handler-aggregator/
-├── cmd/aggregator/main.go           # Entry point and wiring
+├── cmd/aggregator/
+│   ├── main.go                      # Entry point
+│   └── system.go                    # System builder pattern
+├── test/integration/                # End-to-end integration tests
+│   ├── generator.go                 # Synthetic tick generator
+│   ├── integration_test.go          # Test cases
+│   └── README.md                    # Test documentation
 ├── internal/
 │   ├── config/                      # Config loading and validation
 │   │   ├── config.go
