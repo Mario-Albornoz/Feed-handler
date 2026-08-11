@@ -19,7 +19,7 @@ go build -o aggregator ./cmd/aggregator
 ## 3. Start Kafka (for testing)
 
 ```bash
-docker-compose -f docker-compose.test.yml up -d
+docker compose -f docker-compose.test.yml up -d
 sleep 30  # Wait for Kafka to initialize
 ```
 
@@ -136,7 +136,7 @@ The learned statistics are saved and will be restored on next startup.
 
 ```bash
 # Stop Kafka
-docker-compose -f docker-compose.test.yml down -v
+docker compose -f docker-compose.test.yml down -v
 
 # Remove generated files
 rm -rf data/
@@ -155,7 +155,7 @@ rm aggregator
 
 **"Failed to connect to Kafka"**
 - Ensure Docker Compose is running: `docker ps`
-- Check logs: `docker-compose -f docker-compose.test.yml logs kafka`
+- Check logs: `docker compose -f docker-compose.test.yml logs kafka`
 - Wait longer for Kafka initialization (30-60s)
 
 **"No ticks being processed"**

@@ -12,13 +12,13 @@ End-to-end integration tests for the feed-handler-aggregator using local Kafka.
 ### 1. Start Kafka
 
 ```bash
-docker-compose -f docker-compose.test.yml up -d
+docker compose -f docker-compose.test.yml up -d
 ```
 
 Wait ~30 seconds for Kafka to fully initialize. You can check the logs:
 
 ```bash
-docker-compose -f docker-compose.test.yml logs -f kafka
+docker compose -f docker-compose.test.yml logs -f kafka
 ```
 
 ### 2. Run Integration Tests
@@ -48,7 +48,7 @@ INTEGRATION_TEST=1 go test ./test/integration/... -v -short
 ### 4. Stop Kafka
 
 ```bash
-docker-compose -f docker-compose.test.yml down -v
+docker compose -f docker-compose.test.yml down -v
 ```
 
 ## Test Coverage
@@ -94,7 +94,7 @@ To run in CI:
 ```yaml
 # Example GitHub Actions
 - name: Start Kafka
-  run: docker-compose -f docker-compose.test.yml up -d
+  run: docker compose -f docker-compose.test.yml up -d
 
 - name: Wait for Kafka
   run: sleep 30
@@ -103,7 +103,7 @@ To run in CI:
   run: INTEGRATION_TEST=1 go test ./test/integration/... -v -timeout=5m -short
 
 - name: Stop Kafka
-  run: docker-compose -f docker-compose.test.yml down -v
+  run: docker compose -f docker-compose.test.yml down -v
 ```
 
 Use `-short` flag to skip the slow silence detection test in CI unless the aggregator is also deployed in the pipeline.
@@ -112,7 +112,7 @@ Use `-short` flag to skip the slow silence detection test in CI unless the aggre
 
 **"Failed to connect to Kafka"**
 - Ensure Docker Compose is running: `docker ps`
-- Check Kafka health: `docker-compose -f docker-compose.test.yml logs kafka`
+- Check Kafka health: `docker compose -f docker-compose.test.yml logs kafka`
 - Wait longer for Kafka to initialize (can take 30-60s on first run)
 
 **"Timeout: No normalized vectors received"**

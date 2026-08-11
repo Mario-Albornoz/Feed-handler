@@ -160,10 +160,10 @@ make test-integration        # Run integration tests (skips slow tests)
 make kafka-down              # Cleanup
 
 # Manual execution
-docker-compose -f docker-compose.test.yml up -d
+docker compose -f docker-compose.test.yml up -d
 sleep 30  # Wait for Kafka to initialize
 INTEGRATION_TEST=1 go test ./test/integration/... -v -short
-docker-compose -f docker-compose.test.yml down -v
+docker compose -f docker-compose.test.yml down -v
 ```
 
 **Integration test coverage:**

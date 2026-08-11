@@ -32,17 +32,17 @@ test-integration-full:
 
 kafka-up:
 	@echo "Starting Kafka for integration tests..."
-	docker-compose -f docker-compose.test.yml up -d
+	docker compose -f docker-compose.test.yml up -d
 	@echo "Waiting 30s for Kafka to initialize..."
 	@sleep 30
 	@echo "Kafka ready at localhost:9092"
 
 kafka-down:
 	@echo "Stopping Kafka..."
-	docker-compose -f docker-compose.test.yml down -v
+	docker compose -f docker-compose.test.yml down -v
 
 kafka-logs:
-	docker-compose -f docker-compose.test.yml logs -f kafka
+	docker compose -f docker-compose.test.yml logs -f kafka
 
 clean:
 	@echo "Cleaning up..."
