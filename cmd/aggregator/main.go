@@ -42,7 +42,6 @@ func main() {
 	}
 }
 
-// getConfigPath determines the config file path from CLI args or env vars
 func getConfigPath() string {
 	if len(os.Args) > 1 {
 		return os.Args[1]

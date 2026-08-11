@@ -1,5 +1,5 @@
 # Binaries
-aggregator
+/aggregator
 *.exe
 *.exe~
 *.dll
