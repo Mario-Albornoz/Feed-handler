@@ -10,19 +10,19 @@ func TestResolveSessionBucket_BoundaryTests(t *testing.T) {
 	// Setup NYSE exchange
 	nyLoc, _ := time.LoadLocation("America/New_York")
 	nyseHours := &ExchangeHours{
-		Timezone:        nyLoc,
-		PreMarketStart:  4 * time.Hour,           // 04:00
-		MarketOpen:      9*time.Hour + 30*time.Minute, // 09:30
-		MiddayStart:     12 * time.Hour,          // 12:00
-		CloseStart:      15*time.Hour + 30*time.Minute, // 15:30
-		MarketClose:     16 * time.Hour,          // 16:00
-		AfterHoursEnd:   20 * time.Hour,          // 20:00
+		Timezone:       nyLoc,
+		PreMarketStart: 4 * time.Hour,                 // 04:00
+		MarketOpen:     9*time.Hour + 30*time.Minute,  // 09:30
+		MiddayStart:    12 * time.Hour,                // 12:00
+		CloseStart:     15*time.Hour + 30*time.Minute, // 15:30
+		MarketClose:    16 * time.Hour,                // 16:00
+		AfterHoursEnd:  20 * time.Hour,                // 20:00
 		TradingWeekdays: map[time.Weekday]bool{
 			time.Monday: true, time.Tuesday: true, time.Wednesday: true,
 			time.Thursday: true, time.Friday: true,
 		},
 	}
-	
+
 	exchanges := map[string]*ExchangeHours{"NYSE": nyseHours}
 	resolver := &SessionResolver{exchanges: exchanges}
 
@@ -85,19 +85,19 @@ func TestResolveSessionBucket_BoundaryTests(t *testing.T) {
 func TestResolveSessionBucket_Weekend(t *testing.T) {
 	nyLoc, _ := time.LoadLocation("America/New_York")
 	nyseHours := &ExchangeHours{
-		Timezone:        nyLoc,
-		PreMarketStart:  4 * time.Hour,
-		MarketOpen:      9*time.Hour + 30*time.Minute,
-		MiddayStart:     12 * time.Hour,
-		CloseStart:      15*time.Hour + 30*time.Minute,
-		MarketClose:     16 * time.Hour,
-		AfterHoursEnd:   20 * time.Hour,
+		Timezone:       nyLoc,
+		PreMarketStart: 4 * time.Hour,
+		MarketOpen:     9*time.Hour + 30*time.Minute,
+		MiddayStart:    12 * time.Hour,
+		CloseStart:     15*time.Hour + 30*time.Minute,
+		MarketClose:    16 * time.Hour,
+		AfterHoursEnd:  20 * time.Hour,
 		TradingWeekdays: map[time.Weekday]bool{
 			time.Monday: true, time.Tuesday: true, time.Wednesday: true,
 			time.Thursday: true, time.Friday: true,
 		},
 	}
-	
+
 	exchanges := map[string]*ExchangeHours{"NYSE": nyseHours}
 	resolver := &SessionResolver{exchanges: exchanges}
 
@@ -109,11 +109,11 @@ func TestResolveSessionBucket_Weekend(t *testing.T) {
 		// August 1, 2026 is Saturday
 		{"Saturday 10am is Weekend", "2026-08-01T14:00:00Z", Weekend},
 		{"Saturday midnight is Weekend", "2026-08-01T04:00:00Z", Weekend},
-		
+
 		// August 2, 2026 is Sunday
 		{"Sunday 10am is Weekend", "2026-08-02T14:00:00Z", Weekend},
 		{"Sunday evening is Weekend", "2026-08-02T23:00:00Z", Weekend},
-		
+
 		// August 3, 2026 is Monday (should NOT be weekend during market hours)
 		{"Monday 10am is Open", "2026-08-03T14:00:00Z", Open},
 	}
@@ -142,13 +142,13 @@ func TestResolveSessionBucket_MultipleExchanges(t *testing.T) {
 	// NYSE - Eastern Time
 	nyLoc, _ := time.LoadLocation("America/New_York")
 	nyseHours := &ExchangeHours{
-		Timezone:        nyLoc,
-		PreMarketStart:  4 * time.Hour,
-		MarketOpen:      9*time.Hour + 30*time.Minute,
-		MiddayStart:     12 * time.Hour,
-		CloseStart:      15*time.Hour + 30*time.Minute,
-		MarketClose:     16 * time.Hour,
-		AfterHoursEnd:   20 * time.Hour,
+		Timezone:       nyLoc,
+		PreMarketStart: 4 * time.Hour,
+		MarketOpen:     9*time.Hour + 30*time.Minute,
+		MiddayStart:    12 * time.Hour,
+		CloseStart:     15*time.Hour + 30*time.Minute,
+		MarketClose:    16 * time.Hour,
+		AfterHoursEnd:  20 * time.Hour,
 		TradingWeekdays: map[time.Weekday]bool{
 			time.Monday: true, time.Tuesday: true, time.Wednesday: true,
 			time.Thursday: true, time.Friday: true,
@@ -157,13 +157,13 @@ func TestResolveSessionBucket_MultipleExchanges(t *testing.T) {
 
 	// NASDAQ - Same as NYSE (Eastern Time)
 	nasdaqHours := &ExchangeHours{
-		Timezone:        nyLoc,
-		PreMarketStart:  4 * time.Hour,
-		MarketOpen:      9*time.Hour + 30*time.Minute,
-		MiddayStart:     12 * time.Hour,
-		CloseStart:      15*time.Hour + 30*time.Minute,
-		MarketClose:     16 * time.Hour,
-		AfterHoursEnd:   20 * time.Hour,
+		Timezone:       nyLoc,
+		PreMarketStart: 4 * time.Hour,
+		MarketOpen:     9*time.Hour + 30*time.Minute,
+		MiddayStart:    12 * time.Hour,
+		CloseStart:     15*time.Hour + 30*time.Minute,
+		MarketClose:    16 * time.Hour,
+		AfterHoursEnd:  20 * time.Hour,
 		TradingWeekdays: map[time.Weekday]bool{
 			time.Monday: true, time.Tuesday: true, time.Wednesday: true,
 			time.Thursday: true, time.Friday: true,
@@ -205,10 +205,10 @@ func TestResolveSessionBucket_MultipleExchanges(t *testing.T) {
 // TestResolveSessionBucket_UnknownExchange verifies error handling
 func TestResolveSessionBucket_UnknownExchange(t *testing.T) {
 	resolver := &SessionResolver{exchanges: map[string]*ExchangeHours{}}
-	
+
 	utcTime := time.Now()
 	_, err := resolver.ResolveSessionBucket(utcTime, "UNKNOWN")
-	
+
 	if err == nil {
 		t.Error("expected error for unknown exchange, got nil")
 	}
@@ -218,19 +218,19 @@ func TestResolveSessionBucket_UnknownExchange(t *testing.T) {
 func TestResolveSessionBucket_OvernightSession(t *testing.T) {
 	nyLoc, _ := time.LoadLocation("America/New_York")
 	nyseHours := &ExchangeHours{
-		Timezone:        nyLoc,
-		PreMarketStart:  4 * time.Hour,
-		MarketOpen:      9*time.Hour + 30*time.Minute,
-		MiddayStart:     12 * time.Hour,
-		CloseStart:      15*time.Hour + 30*time.Minute,
-		MarketClose:     16 * time.Hour,
-		AfterHoursEnd:   20 * time.Hour,
+		Timezone:       nyLoc,
+		PreMarketStart: 4 * time.Hour,
+		MarketOpen:     9*time.Hour + 30*time.Minute,
+		MiddayStart:    12 * time.Hour,
+		CloseStart:     15*time.Hour + 30*time.Minute,
+		MarketClose:    16 * time.Hour,
+		AfterHoursEnd:  20 * time.Hour,
 		TradingWeekdays: map[time.Weekday]bool{
 			time.Monday: true, time.Tuesday: true, time.Wednesday: true,
 			time.Thursday: true, time.Friday: true,
 		},
 	}
-	
+
 	exchanges := map[string]*ExchangeHours{"NYSE": nyseHours}
 	resolver := &SessionResolver{exchanges: exchanges}
 
@@ -270,32 +270,32 @@ func TestResolveSessionBucket_OvernightSession(t *testing.T) {
 func TestSessionAwareStats(t *testing.T) {
 	nyLoc, _ := time.LoadLocation("America/New_York")
 	nyseHours := &ExchangeHours{
-		Timezone:        nyLoc,
-		PreMarketStart:  4 * time.Hour,
-		MarketOpen:      9*time.Hour + 30*time.Minute,
-		MiddayStart:     12 * time.Hour,
-		CloseStart:      15*time.Hour + 30*time.Minute,
-		MarketClose:     16 * time.Hour,
-		AfterHoursEnd:   20 * time.Hour,
+		Timezone:       nyLoc,
+		PreMarketStart: 4 * time.Hour,
+		MarketOpen:     9*time.Hour + 30*time.Minute,
+		MiddayStart:    12 * time.Hour,
+		CloseStart:     15*time.Hour + 30*time.Minute,
+		MarketClose:    16 * time.Hour,
+		AfterHoursEnd:  20 * time.Hour,
 		TradingWeekdays: map[time.Weekday]bool{
 			time.Monday: true, time.Tuesday: true, time.Wednesday: true,
 			time.Thursday: true, time.Friday: true,
 		},
 	}
-	
+
 	exchanges := map[string]*ExchangeHours{"NYSE": nyseHours}
 	resolver := &SessionResolver{exchanges: exchanges}
 
 	// Scenario: Create a tick sequence with an overnight gap
-	
+
 	// Friday 15:55 (Close session) - last tick before close
 	fridayClose, _ := time.Parse(time.RFC3339, "2026-08-07T19:55:00Z") // 15:55 ET
 	bucketFridayClose, _ := resolver.ResolveSessionBucket(fridayClose, "NYSE")
-	
+
 	// Monday 04:15 (PreMarket session) - first tick after overnight gap
 	mondayPremarket, _ := time.Parse(time.RFC3339, "2026-08-10T08:15:00Z") // 04:15 ET
 	bucketMondayPremarket, _ := resolver.ResolveSessionBucket(mondayPremarket, "NYSE")
-	
+
 	// Monday 09:35 (Open session) - tick during market hours
 	mondayOpen, _ := time.Parse(time.RFC3339, "2026-08-10T13:35:00Z") // 09:35 ET
 	bucketMondayOpen, _ := resolver.ResolveSessionBucket(mondayOpen, "NYSE")
@@ -330,11 +330,11 @@ func TestSessionAwareStats(t *testing.T) {
 	// Key test: If you maintained session-specific stats:
 	// - The overnight gap is NORMAL for the PreMarket session (many hours since last Close)
 	// - But would be ABNORMAL for the Open session (where typical intertick is seconds)
-	// 
+	//
 	// This test verifies the session buckets are being resolved correctly.
 	// The actual statistical calculation (z-scores) will happen in AGG-1b when
 	// you maintain separate RollingStats per session bucket.
-	
+
 	t.Logf("Session resolution test passed:")
 	t.Logf("  Friday Close tick: %v → %v", fridayClose.In(nyLoc), bucketFridayClose)
 	t.Logf("  Monday PreMarket tick: %v → %v", mondayPremarket.In(nyLoc), bucketMondayPremarket)
@@ -348,26 +348,26 @@ func TestSessionAwareStats(t *testing.T) {
 func TestResolveSessionBucket_DST(t *testing.T) {
 	nyLoc, _ := time.LoadLocation("America/New_York")
 	nyseHours := &ExchangeHours{
-		Timezone:        nyLoc,
-		PreMarketStart:  4 * time.Hour,
-		MarketOpen:      9*time.Hour + 30*time.Minute,
-		MiddayStart:     12 * time.Hour,
-		CloseStart:      15*time.Hour + 30*time.Minute,
-		MarketClose:     16 * time.Hour,
-		AfterHoursEnd:   20 * time.Hour,
+		Timezone:       nyLoc,
+		PreMarketStart: 4 * time.Hour,
+		MarketOpen:     9*time.Hour + 30*time.Minute,
+		MiddayStart:    12 * time.Hour,
+		CloseStart:     15*time.Hour + 30*time.Minute,
+		MarketClose:    16 * time.Hour,
+		AfterHoursEnd:  20 * time.Hour,
 		TradingWeekdays: map[time.Weekday]bool{
 			time.Monday: true, time.Tuesday: true, time.Wednesday: true,
 			time.Thursday: true, time.Friday: true,
 		},
 	}
-	
+
 	exchanges := map[string]*ExchangeHours{"NYSE": nyseHours}
 	resolver := &SessionResolver{exchanges: exchanges}
 
 	// Before DST transition (EST = UTC-5)
 	beforeDST, _ := time.Parse(time.RFC3339, "2025-03-07T14:30:00Z") // 09:30 EST
 	bucketBefore, _ := resolver.ResolveSessionBucket(beforeDST, "NYSE")
-	
+
 	// After DST transition (EDT = UTC-4) - clocks spring forward
 	afterDST, _ := time.Parse(time.RFC3339, "2025-03-10T13:30:00Z") // 09:30 EDT
 	bucketAfter, _ := resolver.ResolveSessionBucket(afterDST, "NYSE")

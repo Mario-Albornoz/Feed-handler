@@ -23,13 +23,13 @@ func setupTestDetector(t *testing.T) (*Detector, *model.InstrumentRegistry, *Moc
 	loc, _ := time.LoadLocation("America/New_York")
 	exchanges := map[string]*model.ExchangeHours{
 		"NYSE": {
-			Timezone:        loc,
-			PreMarketStart:  4 * time.Hour,
-			MarketOpen:      9*time.Hour + 30*time.Minute,
-			MiddayStart:     12 * time.Hour,
-			CloseStart:      15*time.Hour + 30*time.Minute,
-			MarketClose:     16 * time.Hour,
-			AfterHoursEnd:   20 * time.Hour,
+			Timezone:       loc,
+			PreMarketStart: 4 * time.Hour,
+			MarketOpen:     9*time.Hour + 30*time.Minute,
+			MiddayStart:    12 * time.Hour,
+			CloseStart:     15*time.Hour + 30*time.Minute,
+			MarketClose:    16 * time.Hour,
+			AfterHoursEnd:  20 * time.Hour,
 			TradingWeekdays: map[time.Weekday]bool{
 				time.Monday: true, time.Tuesday: true, time.Wednesday: true,
 				time.Thursday: true, time.Friday: true,
@@ -208,10 +208,10 @@ func TestDetector_SessionFallback(t *testing.T) {
 
 func TestDetermineLatencyLevel(t *testing.T) {
 	tests := []struct {
-		name              string
-		elapsedMs         float64
-		expectedMs        float64
-		expectedLevel     string
+		name          string
+		elapsedMs     float64
+		expectedMs    float64
+		expectedLevel string
 	}{
 		{"Low (6x)", 600, 100, "LOW"},
 		{"Low (9x)", 900, 100, "LOW"},

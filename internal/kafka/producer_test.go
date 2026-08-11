@@ -13,9 +13,9 @@ import (
 
 // MockWriter mocks kafka.Writer for testing
 type MockWriter struct {
-	messages      []kafka.Message
-	shouldFail    bool
-	failCount     int
+	messages       []kafka.Message
+	shouldFail     bool
+	failCount      int
 	currentAttempt int
 }
 
@@ -129,9 +129,9 @@ func TestProducer_WriteAlert_Success(t *testing.T) {
 
 func TestProducer_WriteVector_PartitionKeys(t *testing.T) {
 	tests := []struct {
-		name       string
-		exchange   string
-		modelKey   string
+		name        string
+		exchange    string
+		modelKey    string
 		expectedKey string
 	}{
 		{"NYSE Equity", "NYSE", "equity", "NYSE:equity"},
@@ -165,9 +165,9 @@ func TestProducer_WriteVector_PartitionKeys(t *testing.T) {
 
 func TestProducer_WriteAlert_PartitionKeys(t *testing.T) {
 	tests := []struct {
-		name         string
-		exchange     string
-		expectedKey  string
+		name        string
+		exchange    string
+		expectedKey string
 	}{
 		{"NYSE Alert", "NYSE", "NYSE:SILENCE"},
 		{"NASDAQ Alert", "NASDAQ", "NASDAQ:SILENCE"},
@@ -223,7 +223,7 @@ func TestProducer_WriteVector_Error(t *testing.T) {
 func TestProducer_Close(t *testing.T) {
 	vectorWriter := &MockWriter{}
 	alertWriter := &MockWriter{}
-	
+
 	producer := &Producer{
 		vectorProducer: vectorWriter,
 		alertProducer:  alertWriter,
@@ -242,7 +242,7 @@ func TestProducer_Metrics(t *testing.T) {
 	}
 
 	initialSuccess := producer.vectorsWritten
-	
+
 	vector := &model.NormalizedVector{
 		Exchange: "NYSE",
 		ModelKey: "equity",

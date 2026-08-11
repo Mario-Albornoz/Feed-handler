@@ -11,8 +11,8 @@ import (
 
 // MockVectorEmitter mocks VectorEmitter for testing
 type MockVectorEmitter struct {
-	vectors      []*model.NormalizedVector
-	shouldFail   bool
+	vectors    []*model.NormalizedVector
+	shouldFail bool
 }
 
 func (m *MockVectorEmitter) WriteVector(ctx context.Context, vector *model.NormalizedVector) error {
@@ -43,13 +43,13 @@ func setupTestProcessor(t *testing.T) (*FeedProcessor, *model.InstrumentRegistry
 	// Create session resolver with test exchanges
 	loc, _ := time.LoadLocation("America/New_York")
 	exchangeHours := &model.ExchangeHours{
-		Timezone:        loc,
-		PreMarketStart:  4 * time.Hour,
-		MarketOpen:      9*time.Hour + 30*time.Minute,
-		MiddayStart:     12 * time.Hour,
-		CloseStart:      15*time.Hour + 30*time.Minute,
-		MarketClose:     16 * time.Hour,
-		AfterHoursEnd:   20 * time.Hour,
+		Timezone:       loc,
+		PreMarketStart: 4 * time.Hour,
+		MarketOpen:     9*time.Hour + 30*time.Minute,
+		MiddayStart:    12 * time.Hour,
+		CloseStart:     15*time.Hour + 30*time.Minute,
+		MarketClose:    16 * time.Hour,
+		AfterHoursEnd:  20 * time.Hour,
 		TradingWeekdays: map[time.Weekday]bool{
 			time.Monday: true, time.Tuesday: true, time.Wednesday: true,
 			time.Thursday: true, time.Friday: true,
@@ -141,11 +141,11 @@ func TestProcessRawTicks_FirstTick(t *testing.T) {
 		InstrumentIdentifier: "AAPL",
 	}
 	state := registry.GetOrCreate(key)
-	
+
 	if state.LastTickTime.IsZero() {
 		t.Error("LastTickTime should be set after processing")
 	}
-	
+
 	expectedMid := (150.0 + 150.5) / 2.0
 	if state.PrevMid != expectedMid {
 		t.Errorf("Expected PrevMid %f, got %f", expectedMid, state.PrevMid)
@@ -341,11 +341,11 @@ func TestProcessRawTicks_MultipleInstruments(t *testing.T) {
 			InstrumentIdentifier: inst,
 		}
 		state := registry.GetOrCreate(key)
-		
+
 		if state.AllSessionStats.ObservationCount != 1 {
 			t.Errorf("Instrument %s: expected 1 observation, got %d", inst, state.AllSessionStats.ObservationCount)
 		}
-		
+
 		if emitter.vectors[i].Instrument != inst {
 			t.Errorf("Vector %d: expected instrument %s, got %s", i, inst, emitter.vectors[i].Instrument)
 		}
@@ -431,13 +431,13 @@ func TestProcessRawTicks_NoProducer(t *testing.T) {
 	loc, _ := time.LoadLocation("America/New_York")
 	exchanges := map[string]*model.ExchangeHours{
 		"NYSE": {
-			Timezone:        loc,
-			PreMarketStart:  4 * time.Hour,
-			MarketOpen:      9*time.Hour + 30*time.Minute,
-			MiddayStart:     12 * time.Hour,
-			CloseStart:      15*time.Hour + 30*time.Minute,
-			MarketClose:     16 * time.Hour,
-			AfterHoursEnd:   20 * time.Hour,
+			Timezone:       loc,
+			PreMarketStart: 4 * time.Hour,
+			MarketOpen:     9*time.Hour + 30*time.Minute,
+			MiddayStart:    12 * time.Hour,
+			CloseStart:     15*time.Hour + 30*time.Minute,
+			MarketClose:    16 * time.Hour,
+			AfterHoursEnd:  20 * time.Hour,
 			TradingWeekdays: map[time.Weekday]bool{
 				time.Monday: true, time.Tuesday: true, time.Wednesday: true,
 				time.Thursday: true, time.Friday: true,

@@ -183,9 +183,9 @@ func TestBimodalInstrument(t *testing.T) {
 	// Key test: fallback provides coverage but with appropriate statistics
 	// An Overnight tick with 8hr gap (28800000ms) should still show high z-score
 	// even against fallback, because fallback learned 50ms intervals
-	z := (28800000.0 - state.AllSessionStats.SlowMeanIntertick) / 
-		 (state.AllSessionStats.SlowVarIntertick + 1e-10)
-	
+	z := (28800000.0 - state.AllSessionStats.SlowMeanIntertick) /
+		(state.AllSessionStats.SlowVarIntertick + 1e-10)
+
 	if z < 100 {
 		t.Errorf("8hr gap should produce very high z-score even against fallback, got %.2f", z)
 	}
@@ -199,7 +199,7 @@ func TestFallbackAlwaysUpdates(t *testing.T) {
 
 	// Update only Open session bucket
 	state.StatsBySession[Open].Update(10.0, 0.04, 0.01, 100.0)
-	
+
 	// In real implementation, AllSessionStats would also be updated
 	// This test documents the requirement - actual update happens in ProcessTick
 	// For now, manually update to show the pattern
