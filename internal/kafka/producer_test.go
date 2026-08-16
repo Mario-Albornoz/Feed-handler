@@ -45,9 +45,8 @@ func TestProducer_WriteVector_Success(t *testing.T) {
 		Class:          "E",
 		ModelKey:       "equity",
 		ZIntertickFast: 1.5,
-		ZSpreadFast:    0.3,
+		ZPriceStepFast: 0.3,
 		GapFlag:        0,
-		QuoteInv:       0,
 	}
 
 	err := producer.WriteVector(context.Background(), vector)

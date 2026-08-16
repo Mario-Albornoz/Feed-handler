@@ -12,12 +12,12 @@ func TestFallbackSelection(t *testing.T) {
 	// Warm up Open session bucket to exactly MinObservations-1 (49 observations)
 	openStats := state.StatsBySession[Open]
 	for i := 0; i < 49; i++ {
-		openStats.Update(10.0, 0.04, 0.01, 100.0)
+		openStats.Update(10.0, 0.01)
 	}
 
 	// Warm up AllSessionStats to well above MinObservations (100 observations)
 	for i := 0; i < 100; i++ {
-		state.AllSessionStats.Update(10.0, 0.04, 0.01, 100.0)
+		state.AllSessionStats.Update(10.0, 0.01)
 	}
 
 	// Test 1: Session bucket with < MinObservations should use fallback
@@ -30,7 +30,7 @@ func TestFallbackSelection(t *testing.T) {
 	}
 
 	// Test 2: Add one more observation to reach MinObservations (50)
-	openStats.Update(10.0, 0.04, 0.01, 100.0)
+	openStats.Update(10.0, 0.01)
 	stats, usedFallback = state.GetStateForBucket(Open)
 	if usedFallback {
 		t.Error("Expected to use session-specific stats when >= MinObservations")
@@ -62,9 +62,9 @@ func TestIlliquidInstrumentFallback(t *testing.T) {
 	// Simulate updates to both session-specific and fallback stats
 	for i, bucket := range sessionSequence {
 		// Update session-specific bucket
-		state.StatsBySession[bucket].Update(28800000.0, 0.04, 0.01, 100.0) // 8 hours in ms
+		state.StatsBySession[bucket].Update(28800000.0, 0.01) // 8 hours in ms
 		// Update fallback (this would happen in real ProcessTick)
-		state.AllSessionStats.Update(28800000.0, 0.04, 0.01, 100.0)
+		state.AllSessionStats.Update(28800000.0, 0.01)
 
 		// After 60 ticks, fallback should be warm but no session bucket should be
 		if i == 59 {
@@ -97,7 +97,7 @@ func TestCrossoverFromFallbackToSession(t *testing.T) {
 
 	// Warm up fallback
 	for i := 0; i < 60; i++ {
-		state.AllSessionStats.Update(10.0, 0.04, 0.01, 100.0)
+		state.AllSessionStats.Update(10.0, 0.01)
 	}
 
 	// Initially should use fallback for Open bucket
@@ -109,7 +109,7 @@ func TestCrossoverFromFallbackToSession(t *testing.T) {
 	// Gradually warm up Open session bucket
 	openStats := state.StatsBySession[Open]
 	for i := 0; i < 49; i++ {
-		openStats.Update(10.0, 0.04, 0.01, 100.0)
+		openStats.Update(10.0, 0.01)
 		_, usedFallback := state.GetStateForBucket(Open)
 		if !usedFallback {
 			t.Errorf("Should still use fallback at observation %d", i+1)
@@ -117,7 +117,7 @@ func TestCrossoverFromFallbackToSession(t *testing.T) {
 	}
 
 	// Add the 50th observation - crossover point
-	openStats.Update(10.0, 0.04, 0.01, 100.0)
+	openStats.Update(10.0, 0.01)
 	stats, usedFallback := state.GetStateForBucket(Open)
 	if usedFallback {
 		t.Error("Should switch to session-specific at MinObservations")
@@ -142,9 +142,9 @@ func TestBimodalInstrument(t *testing.T) {
 	openStats := state.StatsBySession[Open]
 	for i := 0; i < 500; i++ {
 		// Short intertick during Open (very active)
-		openStats.Update(50.0, 0.04, 0.01, 100.0)
+		openStats.Update(50.0, 0.01)
 		// Also update fallback
-		state.AllSessionStats.Update(50.0, 0.04, 0.01, 100.0)
+		state.AllSessionStats.Update(50.0, 0.01)
 	}
 
 	// Open bucket should be warm and have tight statistics
@@ -198,20 +198,20 @@ func TestFallbackAlwaysUpdates(t *testing.T) {
 	initialCount := state.AllSessionStats.ObservationCount
 
 	// Update only Open session bucket
-	state.StatsBySession[Open].Update(10.0, 0.04, 0.01, 100.0)
+	state.StatsBySession[Open].Update(10.0, 0.01)
 
 	// In real implementation, AllSessionStats would also be updated
 	// This test documents the requirement - actual update happens in ProcessTick
 	// For now, manually update to show the pattern
-	state.AllSessionStats.Update(10.0, 0.04, 0.01, 100.0)
+	state.AllSessionStats.Update(10.0, 0.01)
 
 	if state.AllSessionStats.ObservationCount != initialCount+1 {
 		t.Error("AllSessionStats should update on every tick")
 	}
 
 	// Update a different session bucket
-	state.StatsBySession[Overnight].Update(28800000.0, 0.04, 0.01, 100.0)
-	state.AllSessionStats.Update(28800000.0, 0.04, 0.01, 100.0)
+	state.StatsBySession[Overnight].Update(28800000.0, 0.01)
+	state.AllSessionStats.Update(28800000.0, 0.01)
 
 	if state.AllSessionStats.ObservationCount != initialCount+2 {
 		t.Error("AllSessionStats should update regardless of which session bucket")

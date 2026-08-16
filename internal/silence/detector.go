@@ -87,13 +87,11 @@ func (d *Detector) scan(ctx context.Context) {
 			continue
 		}
 
-		elapsed := now.Sub(state.LastTickTime)
+		elapsed := now.Sub(state.LastTickReceivedAt)
 		elapsedMs := float64(elapsed.Milliseconds())
 
-		// Calculate threshold: gap_multiplier × learned mean interval
 		thresholdMs := d.gapMultiplier * relevantStats.SlowMeanIntertick
 
-		// Alert if silence exceeds threshold
 		if elapsedMs > thresholdMs {
 			alert := &model.SilenceAlert{
 				Exchange:         key.Source,

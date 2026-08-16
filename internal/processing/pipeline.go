@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/config"
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/model"
@@ -25,31 +26,21 @@ type ProcessingState struct {
 	InstrumentKey   model.InstrumentKey
 	InstrumentState *model.InstrumentState
 
-	Intertick  float64
-	Spread     float64
-	PriceStep  float64
-	Volume     float64
-	CurrentMid float64
+	Intertick float64
+	PriceStep float64
 
 	RelevantStats *stats.RollingStats
 	UsedFallback  bool
 
 	ZFastIntertick float64
-	ZFastSpread    float64
 	ZFastPriceStep float64
-	ZFastVolume    float64
 	ZSlowIntertick float64
-	ZSlowSpread    float64
 	ZSlowPriceStep float64
-	ZSlowVolume    float64
 
 	CusumIntertick float64
-	CusumSpread    float64
 	CusumPriceStep float64
-	CusumVolume    float64
 
 	GapFlag             int
-	QuoteInv            int
 	WarmupFlag          int
 	SessionFallbackFlag int
 
@@ -105,12 +96,7 @@ func (p *MetricsCalculatorProcessor) Process(ctx context.Context, state *Process
 		state.Intertick = float64(state.Tick.TradingTime.Sub(state.InstrumentState.LastTickTime).Milliseconds())
 	}
 
-	state.Spread = state.Tick.Ask - state.Tick.Bid
-
-	state.CurrentMid = (state.Tick.Bid + state.Tick.Ask) / 2.0
-	state.PriceStep = math.Abs(state.CurrentMid - state.InstrumentState.PrevMid)
-
-	state.Volume = state.Tick.TotalVolume
+	state.PriceStep = math.Abs(state.Tick.LastTradedPrice - state.InstrumentState.PrevLastTradedPrice)
 
 	return nil
 }
@@ -120,9 +106,9 @@ type StatsUpdaterProcessor struct{}
 
 func (p *StatsUpdaterProcessor) Process(ctx context.Context, state *ProcessingState) error {
 	sessionStats := state.InstrumentState.StatsBySession[state.SessionBucket]
-	sessionStats.Update(state.Intertick, state.Spread, state.PriceStep, state.Volume)
+	sessionStats.Update(state.Intertick, state.PriceStep)
 
-	state.InstrumentState.AllSessionStats.Update(state.Intertick, state.Spread, state.PriceStep, state.Volume)
+	state.InstrumentState.AllSessionStats.Update(state.Intertick, state.PriceStep)
 
 	return nil
 }
@@ -148,9 +134,9 @@ func (p *FallbackSelectorProcessor) Process(ctx context.Context, state *Processi
 type ZScoreCalculatorProcessor struct{}
 
 func (p *ZScoreCalculatorProcessor) Process(ctx context.Context, state *ProcessingState) error {
-	state.ZFastIntertick, state.ZFastSpread, state.ZFastPriceStep, state.ZFastVolume,
-		state.ZSlowIntertick, state.ZSlowSpread, state.ZSlowPriceStep, state.ZSlowVolume =
-		state.RelevantStats.ZScores(state.Intertick, state.Spread, state.PriceStep, state.Volume)
+	state.ZFastIntertick, state.ZFastPriceStep,
+		state.ZSlowIntertick, state.ZSlowPriceStep =
+		state.RelevantStats.ZScores(state.Intertick, state.PriceStep)
 
 	return nil
 }
@@ -160,9 +146,7 @@ type CusumExtractorProcessor struct{}
 
 func (p *CusumExtractorProcessor) Process(ctx context.Context, state *ProcessingState) error {
 	state.CusumIntertick = state.RelevantStats.CusumIntertick
-	state.CusumSpread = state.RelevantStats.CusumSpread
 	state.CusumPriceStep = state.RelevantStats.CusumPriceStep
-	state.CusumVolume = state.RelevantStats.CusumVolume
 	return nil
 }
 
@@ -172,13 +156,6 @@ type FlagCalculatorProcessor struct{}
 func (p *FlagCalculatorProcessor) Process(ctx context.Context, state *ProcessingState) error {
 	// GapFlag: 1 if intertick > 5x rolling mean
 	state.GapFlag = state.RelevantStats.GapFlag(state.Intertick)
-
-	// QuoteInv: 1 if bid >= ask (inverted quote)
-	if state.Tick.Bid >= state.Tick.Ask {
-		state.QuoteInv = 1
-	} else {
-		state.QuoteInv = 0
-	}
 
 	// WarmupFlag: 1 if not enough observations yet
 	if state.RelevantStats.ObservationCount < state.RelevantStats.MinObservations {
@@ -205,22 +182,15 @@ func (p *VectorBuilderProcessor) Process(ctx context.Context, state *ProcessingS
 		ModelKey:   modelKey,
 
 		ZIntertickFast: state.ZFastIntertick,
-		ZSpreadFast:    state.ZFastSpread,
 		ZPriceStepFast: state.ZFastPriceStep,
-		ZVolumeFast:    state.ZFastVolume,
 
 		ZIntertickSlow: state.ZSlowIntertick,
-		ZSpreadSlow:    state.ZSlowSpread,
 		ZPriceStepSlow: state.ZSlowPriceStep,
-		ZVolumeSlow:    state.ZSlowVolume,
 
 		CusumIntertick: state.CusumIntertick,
-		CusumSpread:    state.CusumSpread,
 		CusumPriceStep: state.CusumPriceStep,
-		CusumVolume:    state.CusumVolume,
 
 		GapFlag:             state.GapFlag,
-		QuoteInv:            state.QuoteInv,
 		WarmupFlag:          state.WarmupFlag,
 		SessionFallbackFlag: state.SessionFallbackFlag,
 	}
@@ -247,6 +217,7 @@ type StateUpdaterProcessor struct{}
 
 func (p *StateUpdaterProcessor) Process(ctx context.Context, state *ProcessingState) error {
 	state.InstrumentState.LastTickTime = state.Tick.TradingTime
-	state.InstrumentState.PrevMid = state.CurrentMid
+	state.InstrumentState.LastTickReceivedAt = time.Now()
+	state.InstrumentState.PrevLastTradedPrice = state.Tick.LastTradedPrice
 	return nil
 }

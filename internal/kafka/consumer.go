@@ -38,7 +38,8 @@ func NewFeedConsumer(kafkaConfig config.KafkaConfig, feedProcessor TickProcessor
 				Brokers:  kafkaConfig.Brokers,
 				Topic:    kafkaConfig.InputTopic,
 				GroupID:  kafkaConfig.ConsumerGroup,
-				MaxBytes: 10e6,
+				MinBytes: 10e3,                   // Wait for at least 10KB of data
+				MaxBytes: 10e6,                   // Fetch up to 10MB per request
 				MaxWait:  100 * time.Millisecond, // Don't wait longer than 100ms
 			},
 		),
@@ -47,36 +48,49 @@ func NewFeedConsumer(kafkaConfig config.KafkaConfig, feedProcessor TickProcessor
 }
 
 func (fc *FeedConsumer) StartReadMessageLoop(ctx context.Context) error {
-	msgs := make([]kafka.Message, 0, 100)
-	for i := 0; i < 100; i++ {
-		m, err := fc.TickConsumer.ReadMessage(ctx)
-		if err != nil {
-			if err == context.Canceled {
-				break
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
+		msgs := make([]kafka.Message, 0, 100)
+		for i := 0; i < 100; i++ {
+			m, err := fc.TickConsumer.ReadMessage(ctx)
+			if err != nil {
+				if err == context.Canceled {
+					return nil
+				}
+				atomic.AddUint64(&fc.ticksFailedToRead, 1)
+				continue
 			}
-			log.Printf("Error occurred trying to read message %v", m)
-			atomic.AddUint64(&fc.ticksFailedToRead, 1)
-			continue
-		}
-		msgs = append(msgs, m)
-	}
-
-	for _, m := range msgs {
-		var rawTick model.RawTick
-		err := json.Unmarshal(m.Value, &rawTick)
-		if err != nil {
-			log.Printf("Malformed JSON, skipping: %v", err)
-			continue
+			msgs = append(msgs, m)
 		}
 
-		err = fc.feedProcessor.ProcessRawTicks(ctx, &rawTick)
-		if err != nil {
-			log.Printf("Error while processing tick: %v", err)
-			continue
+		for _, m := range msgs {
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+			}
+
+			var rawTick model.RawTick
+			err := json.Unmarshal(m.Value, &rawTick)
+			if err != nil {
+				log.Printf("Malformed JSON, skipping: %v", err)
+				atomic.AddUint64(&fc.ticksFailedToRead, 1)
+				continue
+			}
+
+			err = fc.feedProcessor.ProcessRawTicks(ctx, &rawTick)
+			if err != nil {
+				log.Printf("Error while processing tick: %v", err)
+				continue
+			}
+			atomic.AddUint64(&fc.ticksSucessfullyRead, 1)
 		}
-		atomic.AddUint64(&fc.ticksSucessfullyRead, 1)
 	}
-	return nil
 }
 
 func (fc *FeedConsumer) Close() error {

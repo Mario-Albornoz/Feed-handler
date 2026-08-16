@@ -79,8 +79,8 @@ func TestDetector_AlertAfterSilenceThreshold(t *testing.T) {
 	now := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC) // Monday 10 AM
 	for i := 0; i < 100; i++ {
 		sessionStats := state.StatsBySession[model.Open]
-		sessionStats.Update(100.0, 0.5, 0.1, 1000) // 100ms intertick
-		state.AllSessionStats.Update(100.0, 0.5, 0.1, 1000)
+		sessionStats.Update(100.0, 0.1) // 100ms intertick, 0.1 priceStep
+		state.AllSessionStats.Update(100.0, 0.1)
 	}
 
 	// Set last tick time to 10 seconds ago (well beyond 5x threshold of 500ms)
@@ -121,8 +121,8 @@ func TestDetector_NoAlertWithinThreshold(t *testing.T) {
 	// Warm up with 100ms interval
 	for i := 0; i < 100; i++ {
 		sessionStats := state.StatsBySession[model.Open]
-		sessionStats.Update(100.0, 0.5, 0.1, 1000)
-		state.AllSessionStats.Update(100.0, 0.5, 0.1, 1000)
+		sessionStats.Update(100.0, 0.1)
+		state.AllSessionStats.Update(100.0, 0.1)
 	}
 
 	// Set last tick time to only 200ms ago (within 5x threshold of 500ms)
@@ -145,8 +145,8 @@ func TestDetector_ProportionalThreshold(t *testing.T) {
 	}
 	liquidState := registry.GetOrCreate(liquidKey)
 	for i := 0; i < 100; i++ {
-		liquidState.StatsBySession[model.Open].Update(10.0, 0.5, 0.1, 1000)
-		liquidState.AllSessionStats.Update(10.0, 0.5, 0.1, 1000)
+		liquidState.StatsBySession[model.Open].Update(10.0, 0.1)
+		liquidState.AllSessionStats.Update(10.0, 0.1)
 	}
 	liquidState.LastTickTime = time.Now().Add(-100 * time.Millisecond) // 10x threshold
 
@@ -157,8 +157,8 @@ func TestDetector_ProportionalThreshold(t *testing.T) {
 	}
 	illiquidState := registry.GetOrCreate(illiquidKey)
 	for i := 0; i < 100; i++ {
-		illiquidState.StatsBySession[model.Open].Update(1000.0, 0.5, 0.1, 1000)
-		illiquidState.AllSessionStats.Update(1000.0, 0.5, 0.1, 1000)
+		illiquidState.StatsBySession[model.Open].Update(1000.0, 0.1)
+		illiquidState.AllSessionStats.Update(1000.0, 0.1)
 	}
 	illiquidState.LastTickTime = time.Now().Add(-10 * time.Second) // 10x threshold
 
@@ -189,10 +189,10 @@ func TestDetector_SessionFallback(t *testing.T) {
 
 	// Warm up all-sessions but not Open session (< MinObservations)
 	for i := 0; i < 10; i++ {
-		state.StatsBySession[model.Open].Update(100.0, 0.5, 0.1, 1000)
+		state.StatsBySession[model.Open].Update(100.0, 0.1)
 	}
 	for i := 0; i < 100; i++ {
-		state.AllSessionStats.Update(100.0, 0.5, 0.1, 1000)
+		state.AllSessionStats.Update(100.0, 0.1)
 	}
 
 	// Set silence

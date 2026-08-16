@@ -86,37 +86,37 @@ func TestRegistrySaveLoadRoundTrip(t *testing.T) {
 
 		// Warm up with observations
 		for i := 0; i < 100; i++ {
-			state.StatsBySession[Open].Update(10.0, 0.04, 0.01, 100.0)
-			state.AllSessionStats.Update(10.0, 0.04, 0.01, 100.0)
+			state.StatsBySession[Open].Update(10.0, 0.01)
+			state.AllSessionStats.Update(10.0, 0.01)
 		}
 
 		state.LastTickTime = time.Now()
-		state.PrevMid = 123.45
+		state.PrevLastTradedPrice = 123.45
 	}
 
 	// Capture original values for verification
 	originalStates := make(map[InstrumentKey]struct {
-		slowMean     float64
-		fastMean     float64
-		obsCount     int64
-		lastTickTime time.Time
-		prevMid      float64
+		slowMean            float64
+		fastMean            float64
+		obsCount            int64
+		lastTickTime        time.Time
+		prevLastTradedPrice float64
 	})
 
 	for _, key := range keys {
 		state := registry.GetOrCreate(key)
 		originalStates[key] = struct {
-			slowMean     float64
-			fastMean     float64
-			obsCount     int64
-			lastTickTime time.Time
-			prevMid      float64
+			slowMean            float64
+			fastMean            float64
+			obsCount            int64
+			lastTickTime        time.Time
+			prevLastTradedPrice float64
 		}{
-			slowMean:     state.StatsBySession[Open].SlowMeanIntertick,
-			fastMean:     state.StatsBySession[Open].FastMeanIntertick,
-			obsCount:     state.StatsBySession[Open].ObservationCount,
-			lastTickTime: state.LastTickTime,
-			prevMid:      state.PrevMid,
+			slowMean:            state.StatsBySession[Open].SlowMeanIntertick,
+			fastMean:            state.StatsBySession[Open].FastMeanIntertick,
+			obsCount:            state.StatsBySession[Open].ObservationCount,
+			lastTickTime:        state.LastTickTime,
+			prevLastTradedPrice: state.PrevLastTradedPrice,
 		}
 	}
 
@@ -164,10 +164,10 @@ func TestRegistrySaveLoadRoundTrip(t *testing.T) {
 				key, state.LastTickTime, original.lastTickTime)
 		}
 
-		// Check PrevMid
-		if math.Abs(state.PrevMid-original.prevMid) > 1e-9 {
-			t.Errorf("PrevMid not preserved for %+v: got %f, want %f",
-				key, state.PrevMid, original.prevMid)
+		// Check PrevLastTradedPrice
+		if math.Abs(state.PrevLastTradedPrice-original.prevLastTradedPrice) > 1e-9 {
+			t.Errorf("PrevLastTradedPrice not preserved for %+v: got %f, want %f",
+				key, state.PrevLastTradedPrice, original.prevLastTradedPrice)
 		}
 	}
 }
@@ -305,8 +305,8 @@ func TestRegistrySave_AllSessionsStats(t *testing.T) {
 
 	// Update both session-specific and fallback stats
 	for i := 0; i < 100; i++ {
-		state.StatsBySession[Open].Update(10.0, 0.04, 0.01, 100.0)
-		state.AllSessionStats.Update(15.0, 0.05, 0.02, 200.0)
+		state.StatsBySession[Open].Update(10.0, 0.01)
+		state.AllSessionStats.Update(15.0, 0.02)
 	}
 
 	originalSessionMean := state.StatsBySession[Open].SlowMeanIntertick

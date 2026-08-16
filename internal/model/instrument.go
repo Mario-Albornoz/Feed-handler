@@ -7,10 +7,11 @@ import (
 )
 
 type InstrumentState struct {
-	LastTickTime    time.Time
-	PrevMid         float64
-	StatsBySession  map[SessionBucket]*stats.RollingStats
-	AllSessionStats *stats.RollingStats
+	LastTickTime        time.Time
+	LastTickReceivedAt  time.Time
+	PrevLastTradedPrice float64
+	StatsBySession      map[SessionBucket]*stats.RollingStats
+	AllSessionStats     *stats.RollingStats
 }
 
 func NewInstrumentState(fastWindowTicks float64, slowWindowticks float64, cusumSlack float64) *InstrumentState {
@@ -22,10 +23,10 @@ func NewInstrumentState(fastWindowTicks float64, slowWindowticks float64, cusumS
 	}
 
 	return &InstrumentState{
-		LastTickTime:    time.Time{},
-		PrevMid:         0.0,
-		StatsBySession:  statsBySession,
-		AllSessionStats: stats.NewRollingStats(fastWindowTicks, slowWindowticks, cusumSlack),
+		LastTickTime:        time.Time{},
+		PrevLastTradedPrice: 0.0,
+		StatsBySession:      statsBySession,
+		AllSessionStats:     stats.NewRollingStats(fastWindowTicks, slowWindowticks, cusumSlack),
 	}
 }
 

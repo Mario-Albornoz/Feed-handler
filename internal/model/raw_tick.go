@@ -10,9 +10,10 @@ type RawTick struct {
 	SecType  string `json:"SecType"` // "E" (equity) or "I" (index)
 	ISIN     string `json:"ISIN"`    // International Securities ID
 
-	Bid         float64 `json:"Bid"`
-	Ask         float64 `json:"Ask"`
-	TotalVolume float64 `json:"TotalVolume"`
+	Bid             float64 `json:"Bid"`
+	Ask             float64 `json:"Ask"`
+	LastTradedPrice float64 `json:"Close"`
+	TotalVolume     float64 `json:"TotalVolume"`
 
 	TradingTime time.Time `json:"TradingTime"` // Timestamp of last update
 	Date        time.Time `json:"Date"`        // System date (optional)

@@ -291,12 +291,11 @@ func TestQuoteInversionDetection(t *testing.T) {
 			continue
 		}
 
-		if vector.QuoteInv == 1 {
-			invertedCount++
-		}
+		// Note: QuoteInv flag removed - we no longer track bid/ask
+		vectorCount++
 
-		if invertedCount >= 5 {
-			t.Logf("Successfully detected inverted quotes via QuoteInversionFlag")
+		if vectorCount >= 5 {
+			t.Logf("Successfully received vectors (QuoteInv test deprecated)")
 			return
 		}
 	}

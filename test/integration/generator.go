@@ -36,7 +36,6 @@ func (g *TickGenerator) Close() error {
 // GenerateNormalTicks generates a sequence of normal market ticks
 func (g *TickGenerator) GenerateNormalTicks(ctx context.Context, exchange, instrument string, count int, intervalMs int) error {
 	basePrice := 100.0
-	spread := 0.02
 
 	for i := 0; i < count; i++ {
 		select {
@@ -47,16 +46,15 @@ func (g *TickGenerator) GenerateNormalTicks(ctx context.Context, exchange, instr
 
 		now := time.Now()
 		tick := &model.RawTick{
-			ID:          instrument,
-			Exchange:    exchange,
-			SecType:     "E",
-			ISIN:        instrument,
-			Bid:         basePrice - spread/2,
-			Ask:         basePrice + spread/2,
-			TotalVolume: float64(1000 + i*10),
-			TradingTime: now,
-			Date:        now,
-			Time:        now,
+			ID:              instrument,
+			Exchange:        exchange,
+			SecType:         "E",
+			ISIN:            instrument,
+			LastTradedPrice: basePrice,
+			TotalVolume:     float64(1000 + i*10),
+			TradingTime:     now,
+			Date:            now,
+			Time:            now,
 		}
 
 		if err := g.writeTick(ctx, tick); err != nil {
@@ -72,7 +70,6 @@ func (g *TickGenerator) GenerateNormalTicks(ctx context.Context, exchange, instr
 // GenerateDriftTicks generates ticks with gradual price drift (Phase 1 scenario)
 func (g *TickGenerator) GenerateDriftTicks(ctx context.Context, exchange, instrument string, count int, intervalMs int) error {
 	basePrice := 100.0
-	spread := 0.02
 	driftPerTick := 0.1
 
 	for i := 0; i < count; i++ {
@@ -86,16 +83,15 @@ func (g *TickGenerator) GenerateDriftTicks(ctx context.Context, exchange, instru
 		now := time.Now()
 
 		tick := &model.RawTick{
-			ID:          instrument,
-			Exchange:    exchange,
-			SecType:     "E",
-			ISIN:        instrument,
-			Bid:         driftedPrice - spread/2,
-			Ask:         driftedPrice + spread/2,
-			TotalVolume: float64(1000 + i*10),
-			TradingTime: now,
-			Date:        now,
-			Time:        now,
+			ID:              instrument,
+			Exchange:        exchange,
+			SecType:         "E",
+			ISIN:            instrument,
+			LastTradedPrice: driftedPrice,
+			TotalVolume:     float64(1000 + i*10),
+			TradingTime:     now,
+			Date:            now,
+			Time:            now,
 		}
 
 		if err := g.writeTick(ctx, tick); err != nil {
@@ -108,7 +104,8 @@ func (g *TickGenerator) GenerateDriftTicks(ctx context.Context, exchange, instru
 	return nil
 }
 
-// GenerateInvertedQuoteTicks generates ticks with bid >= ask (Phase 4 scenario)
+// GenerateInvertedQuoteTicks is no longer relevant as we don't use bid/ask
+// This generates ticks with high price volatility instead
 func (g *TickGenerator) GenerateInvertedQuoteTicks(ctx context.Context, exchange, instrument string, count int, intervalMs int) error {
 	basePrice := 100.0
 
@@ -120,17 +117,18 @@ func (g *TickGenerator) GenerateInvertedQuoteTicks(ctx context.Context, exchange
 		}
 
 		now := time.Now()
+		// Simulate high volatility with alternating price jumps
+		volatility := float64(i%2)*2.0 - 1.0 // Alternates between -1 and +1
 		tick := &model.RawTick{
-			ID:          instrument,
-			Exchange:    exchange,
-			SecType:     "E",
-			ISIN:        instrument,
-			Bid:         basePrice + 0.02,
-			Ask:         basePrice - 0.02,
-			TotalVolume: float64(1000 + i*10),
-			TradingTime: now,
-			Date:        now,
-			Time:        now,
+			ID:              instrument,
+			Exchange:        exchange,
+			SecType:         "E",
+			ISIN:            instrument,
+			LastTradedPrice: basePrice + volatility,
+			TotalVolume:     float64(1000 + i*10),
+			TradingTime:     now,
+			Date:            now,
+			Time:            now,
 		}
 
 		if err := g.writeTick(ctx, tick); err != nil {

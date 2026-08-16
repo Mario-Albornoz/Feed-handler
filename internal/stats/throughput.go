@@ -28,8 +28,10 @@ type ThroughputTracker struct {
 	lastReportTime time.Time
 	reportInterval time.Duration
 
-	prevTicksConsumed  uint64
-	prevTicksProcessed uint64
+	prevTicksConsumed    uint64
+	prevTicksProcessed   uint64
+	prevVectorsPublished uint64
+	prevAlertsPublished  uint64
 }
 
 func NewThroughputTracker(reportInterval time.Duration) *ThroughputTracker {
@@ -125,9 +127,13 @@ func (t *ThroughputTracker) Report() {
 
 	consumeRate := float64(consumed-t.prevTicksConsumed) / elapsed
 	processRate := float64(processed-t.prevTicksProcessed) / elapsed
+	vectorRate := float64(vectors-t.prevVectorsPublished) / elapsed
+	alertRate := float64(alerts-t.prevAlertsPublished) / elapsed
 
 	t.prevTicksConsumed = consumed
 	t.prevTicksProcessed = processed
+	t.prevVectorsPublished = vectors
+	t.prevAlertsPublished = alerts
 	t.lastReportTime = now
 
 	log.Printf("[INFO] ========================================")
@@ -142,6 +148,8 @@ func (t *ThroughputTracker) Report() {
 	log.Printf("[INFO]   Throughput (interval):")
 	log.Printf("[INFO]     Consume rate:       %s ticks/sec", formatNumber(uint64(consumeRate)))
 	log.Printf("[INFO]     Process rate:       %s ticks/sec", formatNumber(uint64(processRate)))
+	log.Printf("[INFO]     Vector rate:        %s vectors/sec", formatNumber(uint64(vectorRate)))
+	log.Printf("[INFO]     Alert rate:         %s alerts/sec", formatNumber(uint64(alertRate)))
 	log.Printf("[INFO]")
 	log.Printf("[INFO]   Instruments:")
 	log.Printf("[INFO]     Total tracked:      %s", formatNumber(instruments))
