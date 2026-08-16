@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"sync/atomic"
+	"time"
 
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/config"
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/model"
@@ -38,6 +39,7 @@ func NewFeedConsumer(kafkaConfig config.KafkaConfig, feedProcessor TickProcessor
 				Topic:    kafkaConfig.InputTopic,
 				GroupID:  kafkaConfig.ConsumerGroup,
 				MaxBytes: 10e6,
+				MaxWait:  100 * time.Millisecond, // Don't wait longer than 100ms
 			},
 		),
 		feedProcessor: feedProcessor,
@@ -45,19 +47,23 @@ func NewFeedConsumer(kafkaConfig config.KafkaConfig, feedProcessor TickProcessor
 }
 
 func (fc *FeedConsumer) StartReadMessageLoop(ctx context.Context) error {
-	for {
+	msgs := make([]kafka.Message, 0, 100)
+	for i := 0; i < 100; i++ {
 		m, err := fc.TickConsumer.ReadMessage(ctx)
 		if err != nil {
 			if err == context.Canceled {
-				return nil
+				break
 			}
 			log.Printf("Error occurred trying to read message %v", m)
 			atomic.AddUint64(&fc.ticksFailedToRead, 1)
 			continue
 		}
+		msgs = append(msgs, m)
+	}
 
+	for _, m := range msgs {
 		var rawTick model.RawTick
-		err = json.Unmarshal(m.Value, &rawTick)
+		err := json.Unmarshal(m.Value, &rawTick)
 		if err != nil {
 			log.Printf("Malformed JSON, skipping: %v", err)
 			continue
@@ -70,7 +76,7 @@ func (fc *FeedConsumer) StartReadMessageLoop(ctx context.Context) error {
 		}
 		atomic.AddUint64(&fc.ticksSucessfullyRead, 1)
 	}
-
+	return nil
 }
 
 func (fc *FeedConsumer) Close() error {
@@ -79,4 +85,8 @@ func (fc *FeedConsumer) Close() error {
 		return err
 	}
 	return nil
+}
+
+func (fc *FeedConsumer) GetMetrics() (successfulReads, failedReads uint64) {
+	return atomic.LoadUint64(&fc.ticksSucessfullyRead), atomic.LoadUint64(&fc.ticksFailedToRead)
 }

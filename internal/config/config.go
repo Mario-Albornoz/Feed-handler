@@ -16,6 +16,7 @@ type AggregatorConfig struct {
 	Windows             WindowConfig            `yaml:"windows"`
 	CUSUM               CUSUMConfig             `yaml:"cusum"`
 	Silence             SilenceConfig           `yaml:"silence"`
+	Stats               StatsConfig             `yaml:"stats"`
 	Profiles            map[string]ClassProfile `yaml:"profiles"`
 	DefaultExchangeInfo ExchangeInfo            `yaml:"default_exchange"`
 	ExchangeInfo        map[string]ExchangeInfo `yaml:"exchanges,omitempty"`
@@ -42,6 +43,10 @@ type CUSUMConfig struct {
 type SilenceConfig struct {
 	CheckIntervalSec int     `yaml:"check_interval_sec"`
 	GapMultiplier    float64 `yaml:"gap_multiplier"`
+}
+
+type StatsConfig struct {
+	ReportIntervalSec int `yaml:"report_interval_sec"` // How often to report statistics (default: 5s)
 }
 
 type ClassProfile struct {

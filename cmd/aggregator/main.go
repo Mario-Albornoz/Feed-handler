@@ -25,10 +25,12 @@ func main() {
 		WithConfig().
 		WithSessionResolver().
 		WithRegistry().
+		WithTopics().
 		WithProducer().
 		WithProcessor().
 		WithConsumer().
 		WithDetector().
+		WithThroughputTracker().
 		Build()
 
 	if err != nil {

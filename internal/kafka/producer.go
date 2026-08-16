@@ -38,11 +38,12 @@ func NewProducer(vectorTopicName string, alertsTopicName string, kafkaURL string
 			Topic:        vectorTopicName,
 			Balancer:     &kafka.Hash{},
 			BatchTimeout: 15 * time.Millisecond,
-			BatchSize:    500,
+			BatchSize:    5000,
 			RequiredAcks: kafka.RequireOne,
 			WriteTimeout: 2 * time.Second,
 			MaxAttempts:  3,
 			Compression:  kafka.Snappy,
+			Async:        true,
 		},
 		alertProducer: &kafka.Writer{
 			Addr:         kafka.TCP(kafkaURL),
@@ -53,6 +54,7 @@ func NewProducer(vectorTopicName string, alertsTopicName string, kafkaURL string
 			RequiredAcks: kafka.RequireOne,
 			WriteTimeout: 2 * time.Second,
 			MaxAttempts:  3,
+			Async:        true,
 		},
 	}
 }
@@ -112,4 +114,12 @@ func (p *Producer) Close() error {
 		errs = append(errs, fmt.Errorf("closing alert producer: %w", err))
 	}
 	return errors.Join(errs...)
+}
+
+// GetMetrics returns the current producer metrics
+func (p *Producer) GetMetrics() (vectorsWritten, alertsWritten, vectorsFailed, alertsFailed uint64) {
+	return atomic.LoadUint64(&p.vectorsWritten),
+		atomic.LoadUint64(&p.alertsWritten),
+		atomic.LoadUint64(&p.vectorsFailed),
+		atomic.LoadUint64(&p.alertsFailed)
 }

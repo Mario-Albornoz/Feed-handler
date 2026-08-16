@@ -18,6 +18,9 @@ silence:
   check_interval_sec: 5
   gap_multiplier: 5.0
 
+stats:
+  report_interval_sec: 5  # Report throughput statistics every 5 seconds
+
 profiles:
   equity:
     model_key: "equity"

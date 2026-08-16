@@ -14,6 +14,7 @@ import (
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/model"
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/processing"
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/silence"
+	"github.com/mario-albornoz/feed-handler-aggregator/internal/stats"
 )
 
 // System encapsulates all components of the aggregator
@@ -25,6 +26,7 @@ type System struct {
 	processor *processing.FeedProcessor
 	consumer  *kafka.FeedConsumer
 	detector  *silence.Detector
+	tracker   *stats.ThroughputTracker
 }
 
 func (s *System) Run(ctx context.Context) error {
@@ -33,10 +35,11 @@ func (s *System) Run(ctx context.Context) error {
 
 	consumerDone := s.startConsumer(ctx)
 	detectorDone := s.startDetector(ctx)
+	statsDone := s.startStatsReporter(ctx)
 
 	log.Println("System fully operational. Press Ctrl+C to shutdown gracefully.")
 
-	return s.waitForShutdown(ctx, cancel, consumerDone, detectorDone)
+	return s.waitForShutdown(ctx, cancel, consumerDone, detectorDone, statsDone)
 }
 
 func (s *System) Shutdown() {
@@ -81,7 +84,61 @@ func (s *System) startDetector(ctx context.Context) chan error {
 	return done
 }
 
-func (s *System) waitForShutdown(ctx context.Context, cancel context.CancelFunc, consumerDone, detectorDone chan error) error {
+func (s *System) startStatsReporter(ctx context.Context) chan error {
+	done := make(chan error, 1)
+	go func() {
+		ticker := time.NewTicker(s.tracker.GetReportInterval())
+		defer ticker.Stop()
+		
+		for {
+			select {
+			case <-ctx.Done():
+				// Final report before shutdown
+				s.updateInstrumentStats()
+				s.tracker.Report()
+				done <- ctx.Err()
+				return
+			case <-ticker.C:
+				s.updateInstrumentStats()
+				s.tracker.Report()
+			}
+		}
+	}()
+	log.Printf("Statistics reporter started (interval: %s)", s.tracker.GetReportInterval())
+	return done
+}
+
+func (s *System) updateInstrumentStats() {
+	// Get instrument statistics
+	allInstruments := s.registry.All()
+	total := uint64(len(allInstruments))
+	warm := uint64(0)
+	
+	for _, state := range allInstruments {
+		if state.AllSessionStats.IsWarm() {
+			warm++
+		}
+	}
+	
+	// Get consumer metrics
+	ticksConsumed, consumerErrors := s.consumer.GetMetrics()
+	
+	// Get producer metrics
+	vectorsPublished, alertsPublished, vectorErrors, alertErrors := s.producer.GetMetrics()
+	
+	// Update tracker with current values
+	s.tracker.UpdateMetrics(
+		ticksConsumed,
+		ticksConsumed-consumerErrors, // Processed = consumed - failed to parse
+		vectorsPublished,
+		alertsPublished,
+		consumerErrors,
+		vectorErrors+alertErrors,
+	)
+	s.tracker.UpdateInstrumentStats(total, warm)
+}
+
+func (s *System) waitForShutdown(ctx context.Context, cancel context.CancelFunc, consumerDone, detectorDone, statsDone chan error) error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -96,23 +153,27 @@ func (s *System) waitForShutdown(ctx context.Context, cancel context.CancelFunc,
 	case err := <-detectorDone:
 		log.Printf("Silence detector stopped: %v", err)
 		shutdownErr = err
+	case err := <-statsDone:
+		log.Printf("Statistics reporter stopped: %v", err)
+		shutdownErr = err
 	}
 
 	cancel()
 
-	s.waitForGoroutines(consumerDone, detectorDone, 10*time.Second)
+	s.waitForGoroutines(consumerDone, detectorDone, statsDone, 10*time.Second)
 
 	return shutdownErr
 }
 
-func (s *System) waitForGoroutines(consumerDone, detectorDone chan error, timeout time.Duration) {
+func (s *System) waitForGoroutines(consumerDone, detectorDone, statsDone chan error, timeout time.Duration) {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
 	consumerStopped := false
 	detectorStopped := false
+	statsStopped := false
 
-	for !consumerStopped || !detectorStopped {
+	for !consumerStopped || !detectorStopped || !statsStopped {
 		select {
 		case <-consumerDone:
 			if !consumerStopped {
@@ -123,6 +184,11 @@ func (s *System) waitForGoroutines(consumerDone, detectorDone chan error, timeou
 			if !detectorStopped {
 				detectorStopped = true
 				log.Println("Silence detector goroutine stopped")
+			}
+		case <-statsDone:
+			if !statsStopped {
+				statsStopped = true
+				log.Println("Statistics reporter goroutine stopped")
 			}
 		case <-timer.C:
 			log.Println("Warning: Shutdown timeout reached, forcing exit")
@@ -157,6 +223,7 @@ type SystemBuilder struct {
 	processor  *processing.FeedProcessor
 	consumer   *kafka.FeedConsumer
 	detector   *silence.Detector
+	tracker    *stats.ThroughputTracker
 	err        error
 }
 
@@ -232,6 +299,40 @@ func (b *SystemBuilder) WithRegistry() *SystemBuilder {
 	return b
 }
 
+func (b *SystemBuilder) WithTopics() *SystemBuilder {
+	if b.err != nil {
+		return b
+	}
+
+	log.Println("Ensuring Kafka topics exist...")
+
+	topics := []kafka.TopicConfig{
+		{
+			Name:              b.config.Kafka.InputTopic,
+			NumPartitions:     3,
+			ReplicationFactor: 1,
+		},
+		{
+			Name:              b.config.Kafka.OutputTopic,
+			NumPartitions:     3,
+			ReplicationFactor: 1,
+		},
+		{
+			Name:              b.config.Kafka.AlertTopic,
+			NumPartitions:     3,
+			ReplicationFactor: 1,
+		},
+	}
+
+	if err := kafka.EnsureTopicsExist(b.config.Kafka.Brokers[0], topics); err != nil {
+		b.err = fmt.Errorf("failed to ensure topics exist: %w", err)
+		return b
+	}
+
+	log.Println("Kafka topics verified")
+	return b
+}
+
 func (b *SystemBuilder) WithProducer() *SystemBuilder {
 	if b.err != nil {
 		return b
@@ -291,6 +392,22 @@ func (b *SystemBuilder) WithDetector() *SystemBuilder {
 	return b
 }
 
+func (b *SystemBuilder) WithThroughputTracker() *SystemBuilder {
+	if b.err != nil {
+		return b
+	}
+
+	reportInterval := 5 * time.Second // default
+	if b.config.Stats.ReportIntervalSec > 0 {
+		reportInterval = time.Duration(b.config.Stats.ReportIntervalSec) * time.Second
+	}
+
+	log.Printf("Creating throughput tracker (report interval: %s)...", reportInterval)
+	b.tracker = stats.NewThroughputTracker(reportInterval)
+
+	return b
+}
+
 func (b *SystemBuilder) Build() (*System, error) {
 	if b.err != nil {
 		return nil, b.err
@@ -304,5 +421,6 @@ func (b *SystemBuilder) Build() (*System, error) {
 		processor: b.processor,
 		consumer:  b.consumer,
 		detector:  b.detector,
+		tracker:   b.tracker,
 	}, nil
 }
