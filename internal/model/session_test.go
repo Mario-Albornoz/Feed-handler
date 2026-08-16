@@ -202,15 +202,125 @@ func TestResolveSessionBucket_MultipleExchanges(t *testing.T) {
 	}
 }
 
-// TestResolveSessionBucket_UnknownExchange verifies error handling
+// TestResolveSessionBucket_UnknownExchange verifies error handling without default
 func TestResolveSessionBucket_UnknownExchange(t *testing.T) {
-	resolver := &SessionResolver{exchanges: map[string]*ExchangeHours{}}
+	resolver := &SessionResolver{
+		exchanges:       map[string]*ExchangeHours{},
+		defaultExchange: nil,
+	}
 
 	utcTime := time.Now()
 	_, err := resolver.ResolveSessionBucket(utcTime, "UNKNOWN")
 
 	if err == nil {
-		t.Error("expected error for unknown exchange, got nil")
+		t.Error("expected error for unknown exchange without default, got nil")
+	}
+}
+
+// TestResolveSessionBucket_DefaultExchange verifies fallback to default exchange
+func TestResolveSessionBucket_DefaultExchange(t *testing.T) {
+	nyLoc, _ := time.LoadLocation("America/New_York")
+	defaultHours := &ExchangeHours{
+		Timezone:       nyLoc,
+		PreMarketStart: 4 * time.Hour,
+		MarketOpen:     9*time.Hour + 30*time.Minute,
+		MiddayStart:    12 * time.Hour,
+		CloseStart:     15*time.Hour + 30*time.Minute,
+		MarketClose:    16 * time.Hour,
+		AfterHoursEnd:  20 * time.Hour,
+		TradingWeekdays: map[time.Weekday]bool{
+			time.Monday: true, time.Tuesday: true, time.Wednesday: true,
+			time.Thursday: true, time.Friday: true,
+		},
+	}
+
+	// Create resolver with default but no specific exchanges
+	resolver := &SessionResolver{
+		exchanges:       map[string]*ExchangeHours{},
+		defaultExchange: defaultHours,
+	}
+
+	// Test with an unknown exchange identifier
+	utcTime, _ := time.Parse(time.RFC3339, "2026-08-04T14:00:00Z") // 10am ET, Monday
+	bucket, err := resolver.ResolveSessionBucket(utcTime, "FR")
+
+	if err != nil {
+		t.Fatalf("unexpected error for unknown exchange with default: %v", err)
+	}
+
+	if bucket != Open {
+		t.Errorf("got %v, want Open", bucket)
+	}
+
+	// Test another unknown exchange
+	bucket2, err := resolver.ResolveSessionBucket(utcTime, "UNKNOWN_EXCHANGE")
+	if err != nil {
+		t.Fatalf("unexpected error for second unknown exchange with default: %v", err)
+	}
+
+	if bucket2 != Open {
+		t.Errorf("got %v, want Open", bucket2)
+	}
+}
+
+// TestResolveSessionBucket_OverrideDefault verifies specific exchange overrides default
+func TestResolveSessionBucket_OverrideDefault(t *testing.T) {
+	nyLoc, _ := time.LoadLocation("America/New_York")
+	defaultHours := &ExchangeHours{
+		Timezone:       nyLoc,
+		PreMarketStart: 4 * time.Hour,
+		MarketOpen:     9*time.Hour + 30*time.Minute,
+		MiddayStart:    12 * time.Hour,
+		CloseStart:     15*time.Hour + 30*time.Minute,
+		MarketClose:    16 * time.Hour,
+		AfterHoursEnd:  20 * time.Hour,
+		TradingWeekdays: map[time.Weekday]bool{
+			time.Monday: true, time.Tuesday: true, time.Wednesday: true,
+			time.Thursday: true, time.Friday: true,
+		},
+	}
+
+	// Create a different schedule for a specific exchange
+	customHours := &ExchangeHours{
+		Timezone:       nyLoc,
+		PreMarketStart: 3 * time.Hour, // Different from default
+		MarketOpen:     8 * time.Hour, // Different from default
+		MiddayStart:    11 * time.Hour,
+		CloseStart:     14 * time.Hour,
+		MarketClose:    15 * time.Hour,
+		AfterHoursEnd:  19 * time.Hour,
+		TradingWeekdays: map[time.Weekday]bool{
+			time.Monday: true, time.Tuesday: true, time.Wednesday: true,
+			time.Thursday: true, time.Friday: true,
+		},
+	}
+
+	resolver := &SessionResolver{
+		exchanges: map[string]*ExchangeHours{
+			"CUSTOM": customHours,
+		},
+		defaultExchange: defaultHours,
+	}
+
+	// 08:30 ET on Monday
+	utcTime, _ := time.Parse(time.RFC3339, "2026-08-04T12:30:00Z")
+
+	// CUSTOM exchange should be Open (market opens at 08:00)
+	customBucket, err := resolver.ResolveSessionBucket(utcTime, "CUSTOM")
+	if err != nil {
+		t.Fatalf("unexpected error for CUSTOM exchange: %v", err)
+	}
+	if customBucket != Open {
+		t.Errorf("CUSTOM: got %v, want Open", customBucket)
+	}
+
+	// Unknown exchange should use default (PreMarket at 08:30, market opens at 09:30)
+	defaultBucket, err := resolver.ResolveSessionBucket(utcTime, "NYSE")
+	if err != nil {
+		t.Fatalf("unexpected error for NYSE using default: %v", err)
+	}
+	if defaultBucket != PreMarket {
+		t.Errorf("NYSE (default): got %v, want PreMarket", defaultBucket)
 	}
 }
 

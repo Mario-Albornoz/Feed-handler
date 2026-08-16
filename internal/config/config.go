@@ -12,12 +12,13 @@ import (
 )
 
 type AggregatorConfig struct {
-	Kafka        KafkaConfig             `yaml:"kafka"`
-	Windows      WindowConfig            `yaml:"windows"`
-	CUSUM        CUSUMConfig             `yaml:"cusum"`
-	Silence      SilenceConfig           `yaml:"silence"`
-	Profiles     map[string]ClassProfile `yaml:"profiles"`
-	ExchangeInfo map[string]ExchangeInfo `yaml:"exchanges"`
+	Kafka               KafkaConfig             `yaml:"kafka"`
+	Windows             WindowConfig            `yaml:"windows"`
+	CUSUM               CUSUMConfig             `yaml:"cusum"`
+	Silence             SilenceConfig           `yaml:"silence"`
+	Profiles            map[string]ClassProfile `yaml:"profiles"`
+	DefaultExchangeInfo ExchangeInfo            `yaml:"default_exchange"`
+	ExchangeInfo        map[string]ExchangeInfo `yaml:"exchanges,omitempty"`
 }
 
 type KafkaConfig struct {
@@ -133,45 +134,55 @@ func (cfg *AggregatorConfig) Validate() error {
 		}
 	}
 
-	// Validate Exchange info
-	if len(cfg.ExchangeInfo) == 0 {
-		return fmt.Errorf("at least one exchange must be defined")
+	// Validate Default Exchange info
+	if err := validateExchangeInfo("default_exchange", cfg.DefaultExchangeInfo); err != nil {
+		return err
 	}
+
+	// Validate specific exchange overrides if present
 	for exchange, info := range cfg.ExchangeInfo {
-		// Validate timezone
-		_, err := ParseTimezone(info.Timezone)
+		if err := validateExchangeInfo(exchange, info); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateExchangeInfo(name string, info ExchangeInfo) error {
+	// Validate timezone
+	_, err := ParseTimezone(info.Timezone)
+	if err != nil {
+		return fmt.Errorf("exchange %s: %w", name, err)
+	}
+
+	// Validate time formats
+	times := []struct {
+		name  string
+		value string
+	}{
+		{"premarket_start", info.PreMarketStart},
+		{"market_open", info.MarketOpen},
+		{"midday_start", info.MiddayStart},
+		{"close_start", info.CloseStart},
+		{"market_close", info.MarketClose},
+		{"afterhours_end", info.AfterHoursEnd},
+	}
+
+	for _, t := range times {
+		_, err := ParseTimeOfDay(t.value)
 		if err != nil {
-			return fmt.Errorf("exchange %s: %w", exchange, err)
+			return fmt.Errorf("exchange %s: invalid %s (%s): %w", name, t.name, t.value, err)
 		}
+	}
 
-		// Validate time formats
-		times := []struct {
-			name  string
-			value string
-		}{
-			{"premarket_start", info.PreMarketStart},
-			{"market_open", info.MarketOpen},
-			{"midday_start", info.MiddayStart},
-			{"close_start", info.CloseStart},
-			{"market_close", info.MarketClose},
-			{"afterhours_end", info.AfterHoursEnd},
-		}
-
-		for _, t := range times {
-			_, err := ParseTimeOfDay(t.value)
-			if err != nil {
-				return fmt.Errorf("exchange %s: invalid %s (%s): %w", exchange, t.name, t.value, err)
-			}
-		}
-
-		// Validate weekdays
-		if len(info.TradingWeekdays) == 0 {
-			return fmt.Errorf("exchange %s: trading_weekdays cannot be empty", exchange)
-		}
-		_, err = ParseWeekdays(info.TradingWeekdays)
-		if err != nil {
-			return fmt.Errorf("exchange %s: %w", exchange, err)
-		}
+	// Validate weekdays
+	if len(info.TradingWeekdays) == 0 {
+		return fmt.Errorf("exchange %s: trading_weekdays cannot be empty", name)
+	}
+	_, err = ParseWeekdays(info.TradingWeekdays)
+	if err != nil {
+		return fmt.Errorf("exchange %s: %w", name, err)
 	}
 
 	return nil

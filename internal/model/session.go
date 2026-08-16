@@ -48,18 +48,35 @@ func (s SessionBucket) EnumIndex() int {
 }
 
 type SessionResolver struct {
-	exchanges map[string]*ExchangeHours
+	exchanges       map[string]*ExchangeHours
+	defaultExchange *ExchangeHours
 }
 
 func NewSessionResolver(exchanges map[string]*ExchangeHours) *SessionResolver {
-	return &SessionResolver{exchanges: exchanges}
+	return &SessionResolver{
+		exchanges:       exchanges,
+		defaultExchange: nil,
+	}
+}
+
+func NewSessionResolverWithDefault(defaultExchange *ExchangeHours, exchanges map[string]*ExchangeHours) *SessionResolver {
+	return &SessionResolver{
+		exchanges:       exchanges,
+		defaultExchange: defaultExchange,
+	}
 }
 
 func (sr *SessionResolver) ResolveSessionBucket(t time.Time, exchange string) (SessionBucket, error) {
+	// Try to find exchange-specific hours first
 	exch, ok := sr.exchanges[exchange]
 	if !ok {
-		return 0, fmt.Errorf("unknown exchange: %s", exchange)
+		// Fall back to default exchange if available
+		if sr.defaultExchange == nil {
+			return 0, fmt.Errorf("unknown exchange: %s and no default exchange configured", exchange)
+		}
+		exch = sr.defaultExchange
 	}
+
 	localTime := t.In(exch.Timezone)
 	weekday := localTime.Weekday()
 

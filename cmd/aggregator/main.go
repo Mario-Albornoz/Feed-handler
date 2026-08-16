@@ -70,8 +70,14 @@ func logConfiguration(cfg *config.AggregatorConfig) {
 }
 
 func buildSessionResolver(cfg *config.AggregatorConfig) (*model.SessionResolver, error) {
-	exchanges := make(map[string]*model.ExchangeHours)
+	// Parse default exchange hours
+	defaultHours, err := parseExchangeHours("default", cfg.DefaultExchangeInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse default exchange: %w", err)
+	}
 
+	// Parse specific exchange overrides if present
+	exchanges := make(map[string]*model.ExchangeHours)
 	for exchangeName, exchangeInfo := range cfg.ExchangeInfo {
 		hours, err := parseExchangeHours(exchangeName, exchangeInfo)
 		if err != nil {
@@ -80,7 +86,7 @@ func buildSessionResolver(cfg *config.AggregatorConfig) (*model.SessionResolver,
 		exchanges[exchangeName] = hours
 	}
 
-	return model.NewSessionResolver(exchanges), nil
+	return model.NewSessionResolverWithDefault(defaultHours, exchanges), nil
 }
 
 func parseExchangeHours(name string, info config.ExchangeInfo) (*model.ExchangeHours, error) {

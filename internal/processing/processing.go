@@ -25,8 +25,8 @@ func NewFeedProcessor(
 ) *FeedProcessor {
 	pipeline := []TickProcessor{
 		&EquityFilterProcessor{},
-		&SessionResolverProcessor{resolver: resolver},
 		&InstrumentLookupProcessor{registry: instrumentRegistry},
+		&SessionResolverProcessor{resolver: resolver},
 		&MetricsCalculatorProcessor{},
 		&StatsUpdaterProcessor{},
 		&FallbackSelectorProcessor{},

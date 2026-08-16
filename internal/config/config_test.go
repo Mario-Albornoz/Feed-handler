@@ -6,6 +6,20 @@ import (
 	"testing"
 )
 
+// Helper function to create a valid default exchange for tests
+func getTestDefaultExchange() ExchangeInfo {
+	return ExchangeInfo{
+		Timezone:        "America/New_York",
+		PreMarketStart:  "04:00",
+		MarketOpen:      "09:30",
+		MiddayStart:     "12:00",
+		CloseStart:      "15:30",
+		MarketClose:     "16:00",
+		AfterHoursEnd:   "20:00",
+		TradingWeekdays: []string{"Monday", "Tuesday", "Wednesday", "Thursday", "Friday"},
+	}
+}
+
 func TestLoad_ValidConfig(t *testing.T) {
 	// Use the actual config file from the project
 	cfg, err := Load("../../config/aggregator.yaml")
@@ -32,8 +46,11 @@ func TestLoad_ValidConfig(t *testing.T) {
 	if cfg.Windows.SlowWindowTicks != 14400 {
 		t.Errorf("Expected slow_window_ticks 14400, got %f", cfg.Windows.SlowWindowTicks)
 	}
-	if len(cfg.ExchangeInfo) == 0 {
-		t.Error("Expected exchanges to be loaded")
+	if cfg.DefaultExchangeInfo.Timezone == "" {
+		t.Error("Expected default_exchange to be loaded")
+	}
+	if cfg.DefaultExchangeInfo.Timezone != "America/New_York" {
+		t.Errorf("Expected default_exchange timezone 'America/New_York', got '%s'", cfg.DefaultExchangeInfo.Timezone)
 	}
 	if len(cfg.Profiles) == 0 {
 		t.Error("Expected profiles to be loaded")
@@ -167,18 +184,7 @@ func TestValidate_InvalidWindows(t *testing.T) {
 				Profiles: map[string]ClassProfile{
 					"equity": {ModelKey: "equity"},
 				},
-				ExchangeInfo: map[string]ExchangeInfo{
-					"NYSE": {
-						Timezone:        "America/New_York",
-						PreMarketStart:  "04:00",
-						MarketOpen:      "09:30",
-						MiddayStart:     "12:00",
-						CloseStart:      "15:30",
-						MarketClose:     "16:00",
-						AfterHoursEnd:   "20:00",
-						TradingWeekdays: []string{"Monday", "Tuesday"},
-					},
-				},
+				DefaultExchangeInfo: getTestDefaultExchange(),
 			}
 
 			err := cfg.Validate()
@@ -230,18 +236,7 @@ func TestValidate_InvalidCUSUM(t *testing.T) {
 				Profiles: map[string]ClassProfile{
 					"equity": {ModelKey: "equity"},
 				},
-				ExchangeInfo: map[string]ExchangeInfo{
-					"NYSE": {
-						Timezone:        "America/New_York",
-						PreMarketStart:  "04:00",
-						MarketOpen:      "09:30",
-						MiddayStart:     "12:00",
-						CloseStart:      "15:30",
-						MarketClose:     "16:00",
-						AfterHoursEnd:   "20:00",
-						TradingWeekdays: []string{"Monday"},
-					},
-				},
+				DefaultExchangeInfo: getTestDefaultExchange(),
 			}
 
 			err := cfg.Validate()
@@ -294,18 +289,7 @@ func TestValidate_InvalidSilence(t *testing.T) {
 				Profiles: map[string]ClassProfile{
 					"equity": {ModelKey: "equity"},
 				},
-				ExchangeInfo: map[string]ExchangeInfo{
-					"NYSE": {
-						Timezone:        "America/New_York",
-						PreMarketStart:  "04:00",
-						MarketOpen:      "09:30",
-						MiddayStart:     "12:00",
-						CloseStart:      "15:30",
-						MarketClose:     "16:00",
-						AfterHoursEnd:   "20:00",
-						TradingWeekdays: []string{"Monday"},
-					},
-				},
+				DefaultExchangeInfo: getTestDefaultExchange(),
 			}
 
 			err := cfg.Validate()
@@ -343,17 +327,15 @@ func TestValidate_InvalidExchangeTimezone(t *testing.T) {
 		Profiles: map[string]ClassProfile{
 			"equity": {ModelKey: "equity"},
 		},
-		ExchangeInfo: map[string]ExchangeInfo{
-			"NYSE": {
-				Timezone:        "Invalid/Timezone", // Bad timezone
-				PreMarketStart:  "04:00",
-				MarketOpen:      "09:30",
-				MiddayStart:     "12:00",
-				CloseStart:      "15:30",
-				MarketClose:     "16:00",
-				AfterHoursEnd:   "20:00",
-				TradingWeekdays: []string{"Monday"},
-			},
+		DefaultExchangeInfo: ExchangeInfo{
+			Timezone:        "Invalid/Timezone", // Bad timezone
+			PreMarketStart:  "04:00",
+			MarketOpen:      "09:30",
+			MiddayStart:     "12:00",
+			CloseStart:      "15:30",
+			MarketClose:     "16:00",
+			AfterHoursEnd:   "20:00",
+			TradingWeekdays: []string{"Monday"},
 		},
 	}
 
@@ -387,17 +369,15 @@ func TestValidate_InvalidExchangeTime(t *testing.T) {
 		Profiles: map[string]ClassProfile{
 			"equity": {ModelKey: "equity"},
 		},
-		ExchangeInfo: map[string]ExchangeInfo{
-			"NYSE": {
-				Timezone:        "America/New_York",
-				PreMarketStart:  "25:00", // Invalid time
-				MarketOpen:      "09:30",
-				MiddayStart:     "12:00",
-				CloseStart:      "15:30",
-				MarketClose:     "16:00",
-				AfterHoursEnd:   "20:00",
-				TradingWeekdays: []string{"Monday"},
-			},
+		DefaultExchangeInfo: ExchangeInfo{
+			Timezone:        "America/New_York",
+			PreMarketStart:  "25:00", // Invalid time
+			MarketOpen:      "09:30",
+			MiddayStart:     "12:00",
+			CloseStart:      "15:30",
+			MarketClose:     "16:00",
+			AfterHoursEnd:   "20:00",
+			TradingWeekdays: []string{"Monday"},
 		},
 	}
 
@@ -428,19 +408,8 @@ func TestValidate_EmptyProfiles(t *testing.T) {
 			CheckIntervalSec: 5,
 			GapMultiplier:    5.0,
 		},
-		Profiles: map[string]ClassProfile{}, // Empty - should fail
-		ExchangeInfo: map[string]ExchangeInfo{
-			"NYSE": {
-				Timezone:        "America/New_York",
-				PreMarketStart:  "04:00",
-				MarketOpen:      "09:30",
-				MiddayStart:     "12:00",
-				CloseStart:      "15:30",
-				MarketClose:     "16:00",
-				AfterHoursEnd:   "20:00",
-				TradingWeekdays: []string{"Monday"},
-			},
-		},
+		Profiles:            map[string]ClassProfile{}, // Empty - should fail
+		DefaultExchangeInfo: getTestDefaultExchange(),
 	}
 
 	err := cfg.Validate()
@@ -473,18 +442,7 @@ func TestValidate_ProfileWithEmptyModelKey(t *testing.T) {
 		Profiles: map[string]ClassProfile{
 			"equity": {ModelKey: ""}, // Empty model_key
 		},
-		ExchangeInfo: map[string]ExchangeInfo{
-			"NYSE": {
-				Timezone:        "America/New_York",
-				PreMarketStart:  "04:00",
-				MarketOpen:      "09:30",
-				MiddayStart:     "12:00",
-				CloseStart:      "15:30",
-				MarketClose:     "16:00",
-				AfterHoursEnd:   "20:00",
-				TradingWeekdays: []string{"Monday"},
-			},
-		},
+		DefaultExchangeInfo: getTestDefaultExchange(),
 	}
 
 	err := cfg.Validate()
@@ -493,7 +451,7 @@ func TestValidate_ProfileWithEmptyModelKey(t *testing.T) {
 	}
 }
 
-func TestValidate_EmptyExchanges(t *testing.T) {
+func TestValidate_EmptyDefaultExchange(t *testing.T) {
 	cfg := &AggregatorConfig{
 		Kafka: KafkaConfig{
 			Brokers:       []string{"localhost:9092"},
@@ -517,12 +475,12 @@ func TestValidate_EmptyExchanges(t *testing.T) {
 		Profiles: map[string]ClassProfile{
 			"equity": {ModelKey: "equity"},
 		},
-		ExchangeInfo: map[string]ExchangeInfo{}, // Empty - should fail
+		DefaultExchangeInfo: ExchangeInfo{}, // Empty - should fail
 	}
 
 	err := cfg.Validate()
 	if err == nil {
-		t.Error("Expected validation error for empty exchanges")
+		t.Error("Expected validation error for empty default exchange")
 	}
 }
 
@@ -550,17 +508,15 @@ func TestValidate_InvalidWeekday(t *testing.T) {
 		Profiles: map[string]ClassProfile{
 			"equity": {ModelKey: "equity"},
 		},
-		ExchangeInfo: map[string]ExchangeInfo{
-			"NYSE": {
-				Timezone:        "America/New_York",
-				PreMarketStart:  "04:00",
-				MarketOpen:      "09:30",
-				MiddayStart:     "12:00",
-				CloseStart:      "15:30",
-				MarketClose:     "16:00",
-				AfterHoursEnd:   "20:00",
-				TradingWeekdays: []string{"InvalidDay"}, // Bad weekday
-			},
+		DefaultExchangeInfo: ExchangeInfo{
+			Timezone:        "America/New_York",
+			PreMarketStart:  "04:00",
+			MarketOpen:      "09:30",
+			MiddayStart:     "12:00",
+			CloseStart:      "15:30",
+			MarketClose:     "16:00",
+			AfterHoursEnd:   "20:00",
+			TradingWeekdays: []string{"InvalidDay"}, // Bad weekday
 		},
 	}
 
