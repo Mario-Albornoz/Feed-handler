@@ -12,7 +12,7 @@ type RawTick struct {
 
 	Bid             float64 `json:"Bid"`
 	Ask             float64 `json:"Ask"`
-	LastTradedPrice float64 `json:"Close"`
+	LastTradedPrice float64 `json:"LastTradedPrice"`
 	TotalVolume     float64 `json:"TotalVolume"`
 
 	TradingTime time.Time `json:"TradingTime"` // Timestamp of last update
