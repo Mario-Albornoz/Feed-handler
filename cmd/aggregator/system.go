@@ -89,7 +89,7 @@ func (s *System) startStatsReporter(ctx context.Context) chan error {
 	go func() {
 		ticker := time.NewTicker(s.tracker.GetReportInterval())
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -113,19 +113,19 @@ func (s *System) updateInstrumentStats() {
 	allInstruments := s.registry.All()
 	total := uint64(len(allInstruments))
 	warm := uint64(0)
-	
+
 	for _, state := range allInstruments {
 		if state.AllSessionStats.IsWarm() {
 			warm++
 		}
 	}
-	
+
 	// Get consumer metrics
 	ticksConsumed, consumerErrors := s.consumer.GetMetrics()
-	
+
 	// Get producer metrics
 	vectorsPublished, alertsPublished, vectorErrors, alertErrors := s.producer.GetMetrics()
-	
+
 	// Update tracker with current values
 	s.tracker.UpdateMetrics(
 		ticksConsumed,
@@ -286,15 +286,20 @@ func (b *SystemBuilder) WithRegistry() *SystemBuilder {
 		b.config.CUSUM.Slack,
 	)
 
-	// Attempt to load existing registry
-	registryPath := getRegistryPath()
-	if err := b.registry.Load(registryPath); err != nil {
-		log.Printf("No existing registry found (or load failed): %v", err)
-		log.Println("Starting with empty registry (all instruments will be cold)")
-	} else {
-		count := len(b.registry.All())
-		log.Printf("Registry loaded successfully from %s (%d instruments)", registryPath, count)
+	//temporarly disabled registry snapshot mechanism for monitoring and testing purposes
+	withPreLoadedRegistry := false
+	if withPreLoadedRegistry {
+		// Attempt to load existing registry
+		registryPath := getRegistryPath()
+		if err := b.registry.Load(registryPath); err != nil {
+			log.Printf("No existing registry found (or load failed): %v", err)
+			log.Println("Starting with empty registry (all instruments will be cold)")
+		} else {
+			count := len(b.registry.All())
+			log.Printf("Registry loaded successfully from %s (%d instruments)", registryPath, count)
+		}
 	}
+	log.Println("Starting with empty registry (all instruments will be cold)")
 
 	return b
 }

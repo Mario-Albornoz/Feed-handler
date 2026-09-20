@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"time"
 
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/config"
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/model"
@@ -216,8 +215,8 @@ func (p *VectorEmitterProcessor) Process(ctx context.Context, state *ProcessingS
 type StateUpdaterProcessor struct{}
 
 func (p *StateUpdaterProcessor) Process(ctx context.Context, state *ProcessingState) error {
+	state.InstrumentState.PreviousTickTime = state.InstrumentState.LastTickTime
 	state.InstrumentState.LastTickTime = state.Tick.TradingTime
-	state.InstrumentState.LastTickReceivedAt = time.Now()
 	state.InstrumentState.PrevLastTradedPrice = state.Tick.LastTradedPrice
 	return nil
 }

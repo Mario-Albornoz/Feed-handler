@@ -87,7 +87,10 @@ func (d *Detector) scan(ctx context.Context) {
 			continue
 		}
 
-		elapsed := now.Sub(state.LastTickReceivedAt)
+		if state.PreviousTickTime.IsZero() {
+			continue // Skip if we don't have a previous tick
+		}
+		elapsed := state.LastTickTime.Sub(state.PreviousTickTime)
 		elapsedMs := float64(elapsed.Milliseconds())
 
 		thresholdMs := d.gapMultiplier * relevantStats.SlowMeanIntertick
