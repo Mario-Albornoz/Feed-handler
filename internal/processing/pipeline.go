@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/config"
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/model"
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/stats"
+	"github.com/mario-albornoz/feed-handler-aggregator/internal/validation"
 )
 
 var (
@@ -28,8 +30,20 @@ type ProcessingState struct {
 	Intertick float64
 	PriceStep float64
 
-	RelevantStats *stats.RollingStats
-	UsedFallback  bool
+	// NewDay: this message is the first of a new calendar day for the instrument. The
+	// gap since the previous day's last message is the overnight closure, not a
+	// measurement of the feed, so it is not an observation.
+	NewDay bool
+
+	// HasTrade: the message carries a last traded price. HasPriceStep: it is a trade and
+	// the instrument has a previous trade, so PriceStep (the change between the two
+	// trades) is defined.
+	HasTrade     bool
+	HasPriceStep bool
+
+	RelevantStats      *stats.RollingStats
+	RelevantPriceStats *stats.RollingStats
+	UsedFallback       bool
 
 	ZFastIntertick float64
 	ZFastPriceStep float64
@@ -65,11 +79,59 @@ type SessionResolverProcessor struct {
 }
 
 func (p *SessionResolverProcessor) Process(ctx context.Context, state *ProcessingState) error {
-	bucket, err := p.resolver.ResolveSessionBucket(state.Tick.TradingTime, state.Tick.Exchange)
+	bucket, err := p.resolver.ResolveSessionBucket(state.Tick.FeatureTime(), state.Tick.Exchange)
 	if err != nil {
 		return fmt.Errorf("failed to resolve session: %w", err)
 	}
 	state.SessionBucket = bucket
+	return nil
+}
+
+// ValidatorProcessor rejects malformed ticks before they can touch instrument state
+// or reach the detector. Rejected ticks are reported by the validator (to the
+// evaluation log) and skipped.
+//
+// A rejected message is still a message: it proves the feed is alive. So it is shown to
+// the silence detector and moves the instrument's last-seen time forward, but it adds no
+// statistics observation and leaves the validator's reference time alone. (Without this a
+// quarantined message looks like a gap in the feed and can raise a false silence alert.)
+type ValidatorProcessor struct {
+	validator *validation.Validator
+	observer  SilenceObserver
+}
+
+func (p *ValidatorProcessor) Process(ctx context.Context, state *ProcessingState) error {
+	if p.validator.Validate(ctx, state.Tick, state.InstrumentState.LastTradingTime) {
+		return nil
+	}
+
+	featureTime := state.Tick.FeatureTime()
+	if p.observer != nil {
+		p.observer.ObserveTick(ctx, state.InstrumentKey, state.InstrumentState, featureTime)
+	}
+	state.InstrumentState.Lock()
+	if featureTime.After(state.InstrumentState.LastTickTime) {
+		state.InstrumentState.LastTickTime = featureTime
+	}
+	state.InstrumentState.Unlock()
+	return ErrSkipTick
+}
+
+// SilenceObserver is told about every accepted tick, before its statistics are
+// updated, so silence can be measured against the event-time clock. It is
+// implemented by the silence detector.
+type SilenceObserver interface {
+	ObserveTick(ctx context.Context, key model.InstrumentKey, state *model.InstrumentState, tickTime time.Time)
+}
+
+// SilenceObserverProcessor forwards accepted ticks to the silence detector. The
+// silence rule itself lives in the detector, outside the feature pipeline.
+type SilenceObserverProcessor struct {
+	observer SilenceObserver
+}
+
+func (p *SilenceObserverProcessor) Process(ctx context.Context, state *ProcessingState) error {
+	p.observer.ObserveTick(ctx, state.InstrumentKey, state.InstrumentState, state.Tick.FeatureTime())
 	return nil
 }
 
@@ -89,13 +151,30 @@ func (p *InstrumentLookupProcessor) Process(ctx context.Context, state *Processi
 type MetricsCalculatorProcessor struct{}
 
 func (p *MetricsCalculatorProcessor) Process(ctx context.Context, state *ProcessingState) error {
-	if state.InstrumentState.LastTickTime.IsZero() {
+	// Timing runs on the whole-second update time (FeatureTime), which is monotone; the
+	// millisecond TradingTime jumps back and forth within a second.
+	featureTime := state.Tick.FeatureTime()
+	last := state.InstrumentState.LastTickTime
+	state.NewDay = false
+	switch {
+	case last.IsZero():
 		state.Intertick = 0.0
-	} else {
-		state.Intertick = float64(state.Tick.TradingTime.Sub(state.InstrumentState.LastTickTime).Milliseconds())
+	case !model.SameDay(last, featureTime):
+		state.Intertick = 0.0
+		state.NewDay = true
+	default:
+		state.Intertick = float64(featureTime.Sub(last).Milliseconds())
 	}
 
-	state.PriceStep = math.Abs(state.Tick.LastTradedPrice - state.InstrumentState.PrevLastTradedPrice)
+	// Most messages are quote updates whose last price is empty (0 after parsing). They
+	// carry no price information, so the last traded price is carried forward and the
+	// price step is defined only between two consecutive trades.
+	state.HasTrade = state.Tick.LastTradedPrice > 0
+	state.HasPriceStep = state.HasTrade && state.InstrumentState.PrevLastTradedPrice > 0
+	state.PriceStep = 0
+	if state.HasPriceStep {
+		state.PriceStep = math.Abs(state.Tick.LastTradedPrice - state.InstrumentState.PrevLastTradedPrice)
+	}
 
 	return nil
 }
@@ -104,10 +183,28 @@ func (p *MetricsCalculatorProcessor) Process(ctx context.Context, state *Process
 type StatsUpdaterProcessor struct{}
 
 func (p *StatsUpdaterProcessor) Process(ctx context.Context, state *ProcessingState) error {
-	sessionStats := state.InstrumentState.StatsBySession[state.SessionBucket]
-	sessionStats.Update(state.Intertick, state.PriceStep)
+	// The silence detector reads these statistics from its own goroutine.
+	state.InstrumentState.Lock()
+	defer state.InstrumentState.Unlock()
 
-	state.InstrumentState.AllSessionStats.Update(state.Intertick, state.PriceStep)
+	// The first message of an instrument, and the first of a new day, have no usable
+	// predecessor: their inter-tick interval (0, or the overnight closure) is not an
+	// observation, and under a running average during warm-up it would dominate.
+	if state.InstrumentState.LastTickTime.IsZero() || state.NewDay {
+		return nil
+	}
+
+	sessionStats := state.InstrumentState.StatsBySession[state.SessionBucket]
+	allStats := state.InstrumentState.AllSessionStats
+
+	// Timing is observed on every message, price only between trades.
+	sessionStats.UpdateIntertick(state.Intertick)
+	allStats.UpdateIntertick(state.Intertick)
+	state.InstrumentState.Gaps.Observe(state.Intertick)
+	if state.HasPriceStep {
+		sessionStats.UpdatePriceStep(state.PriceStep)
+		allStats.UpdatePriceStep(state.PriceStep)
+	}
 
 	return nil
 }
@@ -119,6 +216,10 @@ func (p *FallbackSelectorProcessor) Process(ctx context.Context, state *Processi
 	relevantStats, usedFallback := state.InstrumentState.GetStateForBucket(state.SessionBucket)
 	state.RelevantStats = relevantStats
 	state.UsedFallback = usedFallback
+
+	// Trades are rare, so a bucket can have warm timing statistics and cold price
+	// statistics: the price statistics are selected on their own count.
+	state.RelevantPriceStats, _ = state.InstrumentState.GetPriceStateForBucket(state.SessionBucket)
 
 	if usedFallback {
 		state.SessionFallbackFlag = 1
@@ -133,9 +234,13 @@ func (p *FallbackSelectorProcessor) Process(ctx context.Context, state *Processi
 type ZScoreCalculatorProcessor struct{}
 
 func (p *ZScoreCalculatorProcessor) Process(ctx context.Context, state *ProcessingState) error {
-	state.ZFastIntertick, state.ZFastPriceStep,
-		state.ZSlowIntertick, state.ZSlowPriceStep =
-		state.RelevantStats.ZScores(state.Intertick, state.PriceStep)
+	state.ZFastIntertick, state.ZSlowIntertick = state.RelevantStats.IntertickZScores(state.Intertick)
+
+	// A message without a price step says nothing about the price: neutral z-scores.
+	state.ZFastPriceStep, state.ZSlowPriceStep = 0, 0
+	if state.HasPriceStep {
+		state.ZFastPriceStep, state.ZSlowPriceStep = state.RelevantPriceStats.PriceStepZScores(state.PriceStep)
+	}
 
 	return nil
 }
@@ -145,7 +250,7 @@ type CusumExtractorProcessor struct{}
 
 func (p *CusumExtractorProcessor) Process(ctx context.Context, state *ProcessingState) error {
 	state.CusumIntertick = state.RelevantStats.CusumIntertick
-	state.CusumPriceStep = state.RelevantStats.CusumPriceStep
+	state.CusumPriceStep = state.RelevantPriceStats.CusumPriceStep
 	return nil
 }
 
@@ -179,6 +284,7 @@ func (p *VectorBuilderProcessor) Process(ctx context.Context, state *ProcessingS
 		Instrument: state.Tick.ID,
 		Class:      state.Tick.SecType,
 		ModelKey:   modelKey,
+		Seq:        state.Tick.Seq,
 
 		ZIntertickFast: state.ZFastIntertick,
 		ZPriceStepFast: state.ZFastPriceStep,
@@ -190,6 +296,7 @@ func (p *VectorBuilderProcessor) Process(ctx context.Context, state *ProcessingS
 		CusumPriceStep: state.CusumPriceStep,
 
 		GapFlag:             state.GapFlag,
+		HasTrade:            boolToInt(state.HasTrade),
 		WarmupFlag:          state.WarmupFlag,
 		SessionFallbackFlag: state.SessionFallbackFlag,
 	}
@@ -215,8 +322,21 @@ func (p *VectorEmitterProcessor) Process(ctx context.Context, state *ProcessingS
 type StateUpdaterProcessor struct{}
 
 func (p *StateUpdaterProcessor) Process(ctx context.Context, state *ProcessingState) error {
+	state.InstrumentState.Lock()
+	defer state.InstrumentState.Unlock()
+
 	state.InstrumentState.PreviousTickTime = state.InstrumentState.LastTickTime
-	state.InstrumentState.LastTickTime = state.Tick.TradingTime
-	state.InstrumentState.PrevLastTradedPrice = state.Tick.LastTradedPrice
+	state.InstrumentState.LastTickTime = state.Tick.FeatureTime()
+	state.InstrumentState.LastTradingTime = state.Tick.TradingTime
+	if state.HasTrade {
+		state.InstrumentState.PrevLastTradedPrice = state.Tick.LastTradedPrice
+	}
 	return nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

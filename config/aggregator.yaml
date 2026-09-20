@@ -8,15 +8,41 @@ kafka:
 
 windows:
   fast_window_ticks: 60
-  slow_window_ticks: 14400
+  slow_window_ticks: 700
+  # Trade-to-trade price steps an instrument needs before its price statistics are warm.
+  # Trades are rare (the median instrument has about 10 a day), so this is lower than the
+  # 50 messages the timing statistics need.
+  min_price_observations: 20
 
 cusum:
   slack: 0.5
   threshold: 5.0
 
+# Silence: an instrument is silent when it has been quiet for longer than a high quantile
+# of its OWN past gaps between messages. (A multiple of the mean gap was tried and fires
+# on ordinary gaps: 34-47 alerts per 1000 messages on a clean feed against about 1 for the
+# 99.9th percentile.) Timing runs on the whole-second update time.
 silence:
-  check_interval_sec: 5
-  gap_multiplier: 5.0
+  check_interval_sec: 5          # wall-clock cadence of the periodic scan
+  gap_quantile: 0.999            # quantile of the instrument's own gaps
+  gap_quantile_multiplier: 1.0   # alerts are logged at this value; stricter ones can be applied later
+  min_observations: 50           # gaps an instrument needs before it can alert
+  min_threshold_ms: 1000         # clock resolution (whole seconds); not a tuned value
+
+# Feed-integrity validator: rejects ticks with a malformed ISIN or a timestamp that
+# jumps backwards, before they reach the feature pipeline.
+validation:
+  enabled: true
+  # Update times step backwards by up to 1s in normal operation (trade times carry
+  # whole seconds, quote updates milliseconds), so anything below that is noise.
+  timestamp_tolerance_ms: 1000
+
+# Where alerts go. The CSV logs are what the thesis evaluation reads; they are
+# recreated on every start, so copy them out of the way before a new run.
+alerts:
+  silence_log: "data/eval/silence_alerts.csv"
+  validation_log: "data/eval/validation_alerts.csv"
+  kafka_silence_alerts: false   # true also publishes silence alerts to kafka.alert_topic
 
 stats:
   report_interval_sec: 5  # Report throughput statistics every 5 seconds
@@ -29,12 +55,23 @@ profiles:
   crypto:
     model_key: "equity"
 
+# Session hours for every exchange in the data (Euronext Paris/Amsterdam, Xetra).
+#
+# The DEBS timestamps are exchange-local wall-clock time (CET) with no zone, and the
+# parser labels them UTC. Sessions are therefore written on that same clock and the
+# zone is UTC: naming Europe/Paris here would shift every session by an hour. (Evidence:
+# activity runs 09:00-17:30 on this clock and halves in the 17:00 hour, i.e. the
+# 17:30 close; nothing happens before 08:00.)
+#
+# Buckets follow the intraday pattern of the data: busy open, a lull around 13:00, and
+# a busier close once US markets open at 15:30. Note the simulator replays a copy of the
+# days that stops at 16:00, so in that replay "Close" only covers 15:30-16:00.
 default_exchange:
-  timezone: "America/New_York"
-  premarket_start: "04:00"
-  market_open: "09:30"
-  midday_start: "12:00"
+  timezone: "UTC"
+  premarket_start: "07:00"
+  market_open: "09:00"
+  midday_start: "11:00"
   close_start: "15:30"
-  market_close: "16:00"
+  market_close: "17:30"
   afterhours_end: "20:00"
   trading_weekdays: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]

@@ -9,12 +9,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mario-albornoz/feed-handler-aggregator/internal/alertlog"
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/config"
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/kafka"
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/model"
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/processing"
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/silence"
 	"github.com/mario-albornoz/feed-handler-aggregator/internal/stats"
+	"github.com/mario-albornoz/feed-handler-aggregator/internal/validation"
 )
 
 // System encapsulates all components of the aggregator
@@ -27,6 +29,10 @@ type System struct {
 	consumer  *kafka.FeedConsumer
 	detector  *silence.Detector
 	tracker   *stats.ThroughputTracker
+
+	validator     *validation.Validator
+	silenceLog    *alertlog.CSVLog
+	validationLog *alertlog.CSVLog
 }
 
 func (s *System) Run(ctx context.Context) error {
@@ -63,7 +69,27 @@ func (s *System) Shutdown() {
 		s.saveRegistry()
 	}
 
+	if s.validator != nil {
+		rejected, isins, inversions := s.validator.Counts()
+		log.Printf("Validator rejected %d ticks (malformed ISIN: %d, timestamp inversion: %d)",
+			rejected, isins, inversions)
+	}
+	s.closeAlertLog("silence", s.silenceLog)
+	s.closeAlertLog("validation", s.validationLog)
+
 	log.Println("Shutdown complete")
+}
+
+func (s *System) closeAlertLog(name string, l *alertlog.CSVLog) {
+	if l == nil {
+		return
+	}
+	rows := l.Rows()
+	if err := l.Close(); err != nil {
+		log.Printf("Error closing %s alert log %s: %v", name, l.Path(), err)
+		return
+	}
+	log.Printf("Closed %s alert log %s (%d alerts)", name, l.Path(), rows)
 }
 
 func (s *System) startConsumer(ctx context.Context) chan error {
@@ -115,7 +141,10 @@ func (s *System) updateInstrumentStats() {
 	warm := uint64(0)
 
 	for _, state := range allInstruments {
-		if state.AllSessionStats.IsWarm() {
+		state.Lock()
+		isWarm := state.AllSessionStats.IsWarm()
+		state.Unlock()
+		if isWarm {
 			warm++
 		}
 	}
@@ -225,6 +254,11 @@ type SystemBuilder struct {
 	detector   *silence.Detector
 	tracker    *stats.ThroughputTracker
 	err        error
+
+	clock         *model.EventClock
+	validator     *validation.Validator
+	silenceLog    *alertlog.CSVLog
+	validationLog *alertlog.CSVLog
 }
 
 func NewSystemBuilder() *SystemBuilder {
@@ -285,6 +319,9 @@ func (b *SystemBuilder) WithRegistry() *SystemBuilder {
 		b.config.Windows.SlowWindowTicks,
 		b.config.CUSUM.Slack,
 	)
+	if b.config.Windows.MinPriceObservations > 0 {
+		b.registry.SetMinPriceObservations(b.config.Windows.MinPriceObservations)
+	}
 
 	//temporarly disabled registry snapshot mechanism for monitoring and testing purposes
 	withPreLoadedRegistry := false
@@ -357,13 +394,84 @@ func (b *SystemBuilder) WithProducer() *SystemBuilder {
 	return b
 }
 
+// WithEventClock creates the event-time clock shared by the silence detector and the
+// pipeline.
+func (b *SystemBuilder) WithEventClock() *SystemBuilder {
+	if b.err != nil {
+		return b
+	}
+
+	b.clock = model.NewEventClock()
+	return b
+}
+
+// WithAlertLogs opens the CSV evaluation logs configured under alerts:.
+func (b *SystemBuilder) WithAlertLogs() *SystemBuilder {
+	if b.err != nil {
+		return b
+	}
+
+	if path := b.config.Alerts.SilenceLog; path != "" {
+		l, err := alertlog.Open(path, silence.LogHeader)
+		if err != nil {
+			b.err = fmt.Errorf("failed to open silence alert log: %w", err)
+			return b
+		}
+		b.silenceLog = l
+		log.Printf("Silence alerts will be logged to %s", path)
+	}
+
+	if b.config.Validation.Enabled {
+		if path := b.config.Alerts.ValidationLog; path != "" {
+			l, err := alertlog.Open(path, validation.LogHeader)
+			if err != nil {
+				b.err = fmt.Errorf("failed to open validation alert log: %w", err)
+				return b
+			}
+			b.validationLog = l
+			log.Printf("Validation alerts will be logged to %s", path)
+		}
+	}
+
+	return b
+}
+
+// WithValidator creates the feed-integrity validator if it is enabled.
+func (b *SystemBuilder) WithValidator() *SystemBuilder {
+	if b.err != nil {
+		return b
+	}
+
+	if !b.config.Validation.Enabled {
+		log.Println("Feed validator disabled")
+		return b
+	}
+
+	var emitter validation.AlertEmitter
+	if b.validationLog != nil {
+		emitter = validation.NewLogEmitter(b.validationLog)
+	}
+	b.validator = validation.New(b.config.Validation.TimestampToleranceMs, emitter)
+	log.Printf("Feed validator created (timestamp tolerance: %dms)", b.config.Validation.TimestampToleranceMs)
+	return b
+}
+
 func (b *SystemBuilder) WithProcessor() *SystemBuilder {
 	if b.err != nil {
 		return b
 	}
 
 	log.Println("Creating feed processor...")
-	b.processor = processing.NewFeedProcessor(*b.config, b.resolver, b.registry, b.producer)
+
+	var opts []processing.Option
+	if b.validator != nil {
+		opts = append(opts, processing.WithValidator(b.validator))
+	}
+	if b.detector != nil {
+		opts = append(opts, processing.WithSilenceObserver(b.detector))
+	}
+
+	b.processor = processing.NewFeedProcessor(*b.config, b.resolver, b.registry, b.producer, opts...)
 	return b
 }
 
@@ -385,11 +493,27 @@ func (b *SystemBuilder) WithDetector() *SystemBuilder {
 
 	log.Println("Creating silence detector...")
 
+	var emitters silence.MultiEmitter
+	if b.silenceLog != nil {
+		emitters = append(emitters, silence.NewLogEmitter(b.silenceLog))
+	}
+	if b.config.Alerts.KafkaSilenceEnabled() {
+		emitters = append(emitters, b.producer)
+	}
+	if len(emitters) == 0 {
+		log.Println("Warning: silence alerts have no destination (no silence_log and kafka_silence_alerts is off)")
+	}
+
 	b.detector = silence.NewDetector(
 		b.registry,
-		b.resolver,
-		b.producer,
-		b.config.Silence.GapMultiplier,
+		b.clock,
+		emitters,
+		silence.Config{
+			Quantile:        b.config.Silence.GapQuantile,
+			Multiplier:      b.config.Silence.GapQuantileMultiplier,
+			MinObservations: b.config.Silence.MinObservations,
+			MinThresholdMs:  b.config.Silence.MinThresholdMs,
+		},
 		time.Duration(b.config.Silence.CheckIntervalSec)*time.Second,
 	)
 
@@ -427,5 +551,9 @@ func (b *SystemBuilder) Build() (*System, error) {
 		consumer:  b.consumer,
 		detector:  b.detector,
 		tracker:   b.tracker,
+
+		validator:     b.validator,
+		silenceLog:    b.silenceLog,
+		validationLog: b.validationLog,
 	}, nil
 }

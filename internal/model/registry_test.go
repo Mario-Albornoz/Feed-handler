@@ -230,7 +230,9 @@ func TestRegistryAll_ConcurrentAccess(t *testing.T) {
 			}
 			state := registry.GetOrCreate(key)
 			// Simulate some work
+			state.Lock()
 			state.LastTickTime = time.Now()
+			state.Unlock()
 			time.Sleep(1 * time.Millisecond)
 		}
 	}()
@@ -243,7 +245,9 @@ func TestRegistryAll_ConcurrentAccess(t *testing.T) {
 			snapshot := registry.All()
 			// Access states (shouldn't crash or race)
 			for _, state := range snapshot {
+				state.Lock()
 				_ = state.LastTickTime
+				state.Unlock()
 			}
 			time.Sleep(2 * time.Millisecond)
 		}

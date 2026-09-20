@@ -35,7 +35,8 @@ func TestZScoreNormalTick(t *testing.T) {
 func TestZScoreAnomalousTick(t *testing.T) {
 	rs := NewRollingStats(60, 14400, 0.5)
 	for i := 0; i < 200; i++ {
-		rs.Update(10.0, 0.01)
+		// small variation: a perfectly constant series has zero variance and no z-score
+		rs.Update(10.0+float64(i%2), 0.01)
 	}
 	// Feed a tick with 100x normal intertick interval
 	zfi, _, _, _ := rs.ZScores(1000.0, 0.01)
@@ -124,5 +125,86 @@ func TestGapFlag(t *testing.T) {
 	}
 	if rs.GapFlag(60.0) != 1 {
 		t.Error("gap flag should fire at 60ms with 10ms mean and 5x multiplier")
+	}
+}
+
+// TestWarmupIsPlainRunningAverage verifies that until the window fills, the mean and
+// variance are the exact sample mean and variance (no bias from a zero start).
+func TestWarmupIsPlainRunningAverage(t *testing.T) {
+	rs := NewRollingStats(60, 14400, 0.5)
+	values := []float64{4, 8, 6, 10, 2, 12, 7, 5}
+
+	var sum float64
+	for _, v := range values {
+		rs.Update(v, v)
+		sum += v
+	}
+	n := float64(len(values))
+	mean := sum / n
+	var ss float64
+	for _, v := range values {
+		ss += (v - mean) * (v - mean)
+	}
+
+	// slow window (14,400) is far from full after 8 observations
+	if math.Abs(rs.SlowMeanIntertick-mean) > 1e-9 {
+		t.Errorf("slow mean: got %.6f, want the sample mean %.6f", rs.SlowMeanIntertick, mean)
+	}
+	if want := ss / n; math.Abs(rs.SlowVarIntertick-want) > 1e-9 {
+		t.Errorf("slow variance: got %.6f, want the sample variance %.6f", rs.SlowVarIntertick, want)
+	}
+}
+
+// TestSlowMeanUnbiasedEarly is the case that motivated the running average: after the
+// minimum observations the slow mean must already be near the truth, not near zero.
+func TestSlowMeanUnbiasedEarly(t *testing.T) {
+	rs := NewRollingStats(60, 14400, 0.5)
+	for i := 0; i < int(rs.MinObservations); i++ {
+		rs.Update(100.0, 0.1)
+	}
+	if math.Abs(rs.SlowMeanIntertick-100.0) > 1e-6 {
+		t.Errorf("slow mean after %d observations: got %.4f, want 100", rs.MinObservations, rs.SlowMeanIntertick)
+	}
+}
+
+// TestExponentialTakesOverAfterWindow verifies that the average adapts at the
+// configured rate once 1/n falls below alpha.
+func TestExponentialTakesOverAfterWindow(t *testing.T) {
+	rs := NewRollingStats(10, 20, 0.5) // alpha_fast = 2/11
+	for i := 0; i < 100; i++ {
+		rs.Update(10.0, 0.01)
+	}
+	for i := 0; i < 100; i++ {
+		rs.Update(50.0, 0.01)
+	}
+	// long after the level change the fast mean has adapted, which a plain running
+	// average of all 200 observations (30) would not
+	if math.Abs(rs.FastMeanIntertick-50.0) > 0.5 {
+		t.Errorf("fast mean should track the new level: got %.4f, want ~50", rs.FastMeanIntertick)
+	}
+}
+
+// TestTimingAndPriceWarmUpIndependently verifies that price observations do not count
+// towards the timing warm-up and vice versa.
+func TestTimingAndPriceWarmUpIndependently(t *testing.T) {
+	rs := NewRollingStats(60, 14400, 0.5)
+	for i := 0; i < 60; i++ {
+		rs.UpdateIntertick(10.0)
+	}
+	if !rs.IsWarm() || rs.PriceIsWarm() {
+		t.Errorf("60 timing observations: IsWarm=%v (want true), PriceIsWarm=%v (want false)", rs.IsWarm(), rs.PriceIsWarm())
+	}
+	if rs.PriceObservationCount != 0 || rs.SlowMeanPriceStep != 0 || rs.CusumPriceStep != 0 {
+		t.Error("timing updates must not touch the price statistics")
+	}
+
+	for i := 0; i < 60; i++ {
+		rs.UpdatePriceStep(0.5)
+	}
+	if !rs.PriceIsWarm() {
+		t.Error("price statistics should be warm after 60 price observations")
+	}
+	if rs.ObservationCount != 60 {
+		t.Errorf("price updates must not change the timing count, got %d", rs.ObservationCount)
 	}
 }

@@ -27,9 +27,12 @@ func main() {
 		WithRegistry().
 		WithTopics().
 		WithProducer().
+		WithEventClock().
+		WithAlertLogs().
+		WithDetector().
+		WithValidator().
 		WithProcessor().
 		WithConsumer().
-		WithDetector().
 		WithThroughputTracker().
 		Build()
 
@@ -67,8 +70,12 @@ func logConfiguration(cfg *config.AggregatorConfig) {
 	log.Printf("  Fast window: %.0f ticks, Slow window: %.0f ticks",
 		cfg.Windows.FastWindowTicks, cfg.Windows.SlowWindowTicks)
 	log.Printf("  CUSUM slack: %.2f, threshold: %.2f", cfg.CUSUM.Slack, cfg.CUSUM.Threshold)
-	log.Printf("  Silence check interval: %ds, gap multiplier: %.1f",
-		cfg.Silence.CheckIntervalSec, cfg.Silence.GapMultiplier)
+	log.Printf("  Silence: %.4g quantile of the instrument's own gaps x %.2f, min %d observations, scan every %ds",
+		cfg.Silence.GapQuantile, cfg.Silence.GapQuantileMultiplier, cfg.Silence.MinObservations, cfg.Silence.CheckIntervalSec)
+	log.Printf("  Validation enabled: %t (timestamp tolerance: %dms)",
+		cfg.Validation.Enabled, cfg.Validation.TimestampToleranceMs)
+	log.Printf("  Alert logs: silence=%q validation=%q, silence alerts to kafka: %t",
+		cfg.Alerts.SilenceLog, cfg.Alerts.ValidationLog, cfg.Alerts.KafkaSilenceEnabled())
 }
 
 func buildSessionResolver(cfg *config.AggregatorConfig) (*model.SessionResolver, error) {

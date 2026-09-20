@@ -1,131 +1,35 @@
-# Integration Tests
+# Integration test
 
-End-to-end integration tests for the feed-handler-aggregator using local Kafka.
+`integration_test.go` builds the real aggregator binary, starts it against a local Kafka,
+publishes simulator-format JSON messages (including `Seq`) and prints a checklist of what
+worked and what did not, so a failure points at a stage rather than at "the run looks wrong".
 
 ## Prerequisites
 
-- Docker and Docker Compose installed
+- Kafka reachable at `localhost:9092` (e.g. `docker compose -f docker-compose.test.yml up -d`, wait ~30 s)
 - Go 1.22+
 
-## Running the Tests
-
-### 1. Start Kafka
-
-```bash
-docker compose -f docker-compose.test.yml up -d
-```
-
-Wait ~30 seconds for Kafka to fully initialize. You can check the logs:
-
-```bash
-docker compose -f docker-compose.test.yml logs -f kafka
-```
-
-### 2. Run Integration Tests
+## Run
 
 ```bash
 INTEGRATION_TEST=1 go test ./test/integration/... -v -timeout=5m
 ```
 
-**Note:** These tests require the aggregator to be running separately for the silence detection test. For other tests (normal flow, partition keys, quote inversion), the synthetic generator directly validates Kafka output.
+Without `INTEGRATION_TEST=1` the test is skipped.
 
-### 3. Run Specific Tests
+## What it checks (20 items)
 
-```bash
-# Normal flow only
-INTEGRATION_TEST=1 go test ./test/integration/... -v -run TestEndToEndNormalFlow
+- the last traded price survives the wire format (simulator JSON -> handler -> vector)
+- feature vectors are produced for trades and keyed by instrument (partition-key consistency)
+- a rewound timestamp is quarantined, logged in the validation log, and does not look like silence
+- a silence is reported exactly once, with the expected detection time, and resumes cleanly
+- `Seq` is carried from the message to the vector
+- the alert logs are written in the format `evaluate_thesis.py` reads
+- the aggregator shuts down gracefully on SIGTERM and commits only what it processed
 
-# Partition key consistency
-INTEGRATION_TEST=1 go test ./test/integration/... -v -run TestPartitionKeyConsistency
+Each check is printed as PASS/FAIL in the checklist at the end of the test output.
 
-# Quote inversion detection
-INTEGRATION_TEST=1 go test ./test/integration/... -v -run TestQuoteInversionDetection
+## Related tools
 
-# Skip slow silence test
-INTEGRATION_TEST=1 go test ./test/integration/... -v -short
-```
-
-### 4. Stop Kafka
-
-```bash
-docker compose -f docker-compose.test.yml down -v
-```
-
-## Test Coverage
-
-### TestEndToEndNormalFlow
-- Generates 50 normal equity ticks at 50ms intervals
-- Validates `NormalizedVector` output on correct topic
-- Verifies exchange and instrument fields
-- Checks partition key format: `{exchange}:{model_key}`
-
-### TestPartitionKeyConsistency (AGG-4 Regression)
-- Tests 3 instruments (AAPL, GOOGL, MSFT) with 10 ticks each
-- Validates that each `{exchange}:{model_key}` always routes to the same partition
-- Catches partition key regressions
-
-### TestQuoteInversionDetection (Phase 4)
-- Sends 20 normal ticks followed by 10 inverted quotes (bid >= ask)
-- Validates `QuoteInversionFlag` is set to 1 for inverted quotes
-
-### TestSilenceDetection (AGG-5 Regression)
-- Generates 30 normal ticks at 100ms intervals
-- Simulates 5-second silence gap
-- Validates `SilenceAlert` is emitted to health-events topic
-- Checks alert partition key: `{exchange}:SILENCE`
-- **Requires aggregator running with silence detector enabled**
-
-## Architecture
-
-```
-[TickGenerator] → [Kafka: raw-ticks] → [Aggregator] → [Kafka: normalized-vectors]
-                                                     → [Kafka: health-events]
-```
-
-The tests use:
-- `generator.go`: Synthetic tick generation (normal, drift, inversion, silence scenarios)
-- `integration_test.go`: End-to-end validation logic
-- `docker-compose.test.yml`: Isolated Kafka cluster (Zookeeper + single broker)
-
-## CI Integration
-
-To run in CI:
-
-```yaml
-# Example GitHub Actions
-- name: Start Kafka
-  run: docker compose -f docker-compose.test.yml up -d
-
-- name: Wait for Kafka
-  run: sleep 30
-
-- name: Run Integration Tests
-  run: INTEGRATION_TEST=1 go test ./test/integration/... -v -timeout=5m -short
-
-- name: Stop Kafka
-  run: docker compose -f docker-compose.test.yml down -v
-```
-
-Use `-short` flag to skip the slow silence detection test in CI unless the aggregator is also deployed in the pipeline.
-
-## Troubleshooting
-
-**"Failed to connect to Kafka"**
-- Ensure Docker Compose is running: `docker ps`
-- Check Kafka health: `docker compose -f docker-compose.test.yml logs kafka`
-- Wait longer for Kafka to initialize (can take 30-60s on first run)
-
-**"Timeout: No normalized vectors received"**
-- Verify topics exist: `docker exec -it test-kafka kafka-topics --bootstrap-server localhost:9092 --list`
-- Check aggregator is running (for full end-to-end tests)
-- Verify config points to correct broker/topics
-
-**"Partition key mismatch"**
-- This indicates a regression in AGG-4 (producer partition key logic)
-- Check `internal/kafka/producer.go` WriteVector/WriteAlert methods
-
-## Known Limitations
-
-- Silence detection test requires aggregator process running (not purely synthetic)
-- Tests use single Kafka broker (replication factor 1)
-- No DST/session boundary tests yet (covered by unit tests in `internal/model/session_test.go`)
+- `scripts/smoke_run.py` (repo root): whole chain on a small slice of the data
+- `rrcf-detector/scripts/verify_run.py`: stage-by-stage report on a finished run

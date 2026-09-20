@@ -16,6 +16,8 @@ type AggregatorConfig struct {
 	Windows             WindowConfig            `yaml:"windows"`
 	CUSUM               CUSUMConfig             `yaml:"cusum"`
 	Silence             SilenceConfig           `yaml:"silence"`
+	Validation          ValidationConfig        `yaml:"validation"`
+	Alerts              AlertsConfig            `yaml:"alerts"`
 	Stats               StatsConfig             `yaml:"stats"`
 	Profiles            map[string]ClassProfile `yaml:"profiles"`
 	DefaultExchangeInfo ExchangeInfo            `yaml:"default_exchange"`
@@ -33,6 +35,9 @@ type KafkaConfig struct {
 type WindowConfig struct {
 	FastWindowTicks float64 `yaml:"fast_window_ticks"`
 	SlowWindowTicks float64 `yaml:"slow_window_ticks"`
+	// MinPriceObservations is how many trade-to-trade price steps an instrument needs
+	// before its price statistics count as warm (default 20). Trades are rare.
+	MinPriceObservations int64 `yaml:"min_price_observations"`
 }
 
 type CUSUMConfig struct {
@@ -40,9 +45,45 @@ type CUSUMConfig struct {
 	Threshold float64 `yaml:"threshold"`
 }
 
+// SilenceConfig configures silence detection: an instrument is silent when it has been
+// quiet for longer than gap_quantile of its own past gaps (times gap_quantile_multiplier).
 type SilenceConfig struct {
-	CheckIntervalSec int     `yaml:"check_interval_sec"`
-	GapMultiplier    float64 `yaml:"gap_multiplier"`
+	CheckIntervalSec int `yaml:"check_interval_sec"` // wall-clock cadence of the periodic scan
+	// GapQuantile is the quantile of an instrument's own gaps used as the threshold.
+	GapQuantile float64 `yaml:"gap_quantile"`
+	// GapQuantileMultiplier scales the quantile; alerts are logged at this value.
+	GapQuantileMultiplier float64 `yaml:"gap_quantile_multiplier"`
+	// MinObservations is how many gaps an instrument needs before it can alert.
+	MinObservations int64 `yaml:"min_observations"`
+	// MinThresholdMs is a floor: the resolution of the clock (whole seconds).
+	MinThresholdMs float64 `yaml:"min_threshold_ms"`
+}
+
+// ValidationConfig controls the feed-integrity validator (malformed ISIN, timestamp
+// inversion). When disabled, ticks flow to the pipeline unchecked.
+type ValidationConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// TimestampToleranceMs is how far behind an instrument's last accepted tick a
+	// timestamp may fall before it is an inversion. Normal update times step
+	// backwards by up to a second (see validation.New), so use at least 1000.
+	TimestampToleranceMs int64 `yaml:"timestamp_tolerance_ms"`
+}
+
+// AlertsConfig says where the detectors write their alerts. The CSV logs are the
+// input of the thesis evaluation; leave a path empty to disable that log.
+type AlertsConfig struct {
+	// SilenceLog is the CSV file for silence alerts.
+	SilenceLog string `yaml:"silence_log"`
+	// ValidationLog is the CSV file for validator alerts.
+	ValidationLog string `yaml:"validation_log"`
+	// KafkaSilenceAlerts also publishes silence alerts to kafka.alert_topic.
+	// Defaults to true when omitted.
+	KafkaSilenceAlerts *bool `yaml:"kafka_silence_alerts"`
+}
+
+// KafkaSilenceEnabled reports whether silence alerts are published to Kafka.
+func (a AlertsConfig) KafkaSilenceEnabled() bool {
+	return a.KafkaSilenceAlerts == nil || *a.KafkaSilenceAlerts
 }
 
 type StatsConfig struct {
@@ -125,8 +166,25 @@ func (cfg *AggregatorConfig) Validate() error {
 	if cfg.Silence.CheckIntervalSec <= 0 {
 		return fmt.Errorf("silence check_interval_sec must be positive, got %d", cfg.Silence.CheckIntervalSec)
 	}
-	if cfg.Silence.GapMultiplier <= 0 {
-		return fmt.Errorf("silence gap_multiplier must be positive, got %f", cfg.Silence.GapMultiplier)
+	if cfg.Silence.GapQuantile <= 0 || cfg.Silence.GapQuantile >= 1 {
+		return fmt.Errorf("silence gap_quantile must be in (0, 1), got %f", cfg.Silence.GapQuantile)
+	}
+	if cfg.Silence.GapQuantileMultiplier <= 0 {
+		return fmt.Errorf("silence gap_quantile_multiplier must be positive, got %f", cfg.Silence.GapQuantileMultiplier)
+	}
+	if cfg.Silence.MinObservations < 1 {
+		return fmt.Errorf("silence min_observations must be at least 1, got %d", cfg.Silence.MinObservations)
+	}
+	if cfg.Silence.MinThresholdMs < 0 {
+		return fmt.Errorf("silence min_threshold_ms must be non-negative, got %f", cfg.Silence.MinThresholdMs)
+	}
+	if cfg.Windows.MinPriceObservations < 0 {
+		return fmt.Errorf("min_price_observations must be non-negative, got %d", cfg.Windows.MinPriceObservations)
+	}
+
+	// Validate Validation config
+	if cfg.Validation.TimestampToleranceMs < 0 {
+		return fmt.Errorf("validation timestamp_tolerance_ms must be non-negative, got %d", cfg.Validation.TimestampToleranceMs)
 	}
 
 	// Validate Profiles
