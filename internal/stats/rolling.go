@@ -12,11 +12,7 @@ import (
 // and CUSUM values for a single (exchange, instrument) pair.
 // All fields are computed independently for fast and slow baselines.
 type RollingStats struct {
-	// ObservationCount counts inter-tick observations (every message); it decides when
-	// the timing statistics are warm.
-	ObservationCount int64
-	// PriceObservationCount counts trade-to-trade price steps, which are much rarer
-	// than messages, and decides when the price statistics are warm.
+	ObservationCount      int64
 	PriceObservationCount int64
 
 	FastMeanIntertick float64
@@ -36,23 +32,14 @@ type RollingStats struct {
 
 	PrevLastTradedPrice float64
 
-	//config fields
-	FastAlpha       float64
-	SlowAlpha       float64
-	CusumSlack      float64
-	GapMultiplier   float64
-	MinObservations int64
-	// MinPriceObservations is the warm-up requirement of the price statistics. Trades
-	// are far rarer than messages (a median instrument has about 10 a day), so it is
-	// lower than MinObservations.
+	FastAlpha            float64
+	SlowAlpha            float64
+	CusumSlack           float64
+	GapMultiplier        float64
+	MinObservations      int64
 	MinPriceObservations int64
 }
 
-// NewRollingStats creates a new instance with alpha values derived from
-// the desired effective window sizes in ticks.
-// fastWindowTicks: target window for fast baseline in ticks
-// slowWindowTicks: target window for slow baseline in ticks
-// cusumSlack: drift allowance for CUSUM algorithm
 func NewRollingStats(fastWindowTicks, slowWindowTicks, cusumSlack float64) *RollingStats {
 	// EMA alpha from window: alpha = 2 / (N + 1) where N = window in ticks
 	return &RollingStats{
@@ -72,7 +59,7 @@ func NewRollingStats(fastWindowTicks, slowWindowTicks, cusumSlack float64) *Roll
 // The averages are exponential with the configured window, but during warm-up they
 // are plain running averages: the weight of observation n is max(alpha, 1/n). An
 // exponential average that starts at zero needs several windows to converge (with a
-// 14,400-tick window it is under 1% of the true mean after 50 observations), which
+// n-tick window it is under 1% of the true mean after 50 observations), which
 // would distort every slow-timescale z-score and silence threshold early in an
 // instrument's history. With weight 1/n the mean and variance are exactly the sample
 // mean and variance until 1/n falls below alpha, then the exponential takes over.
@@ -90,9 +77,6 @@ func (r *RollingStats) UpdateIntertick(intertick float64) {
 }
 
 // UpdatePriceStep records one price-step observation: the absolute change between two
-// consecutive trade prices. Most messages are quote updates without a trade and carry
-// no price observation, so this is called only for trades, and warms up on its own
-// count (PriceObservationCount).
 func (r *RollingStats) UpdatePriceStep(priceStep float64) {
 	r.PriceObservationCount++
 	warmup := 1.0 / float64(r.PriceObservationCount)

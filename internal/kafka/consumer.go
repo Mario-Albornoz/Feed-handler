@@ -13,18 +13,10 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-// TickProcessor interface for processing raw ticks
 type TickProcessor interface {
 	ProcessRawTicks(ctx context.Context, tick *model.RawTick) error
 }
 
-// MessageReader interface for reading Kafka messages.
-//
-// Fetch and commit are separate on purpose. kafka.Reader.ReadMessage does both, and if
-// its context expires during the commit it returns an error and the message it had
-// already fetched is lost. The consumer reads with a short deadline to bound batches, so
-// it fetches under the deadline and commits each batch afterwards on a context without
-// one.
 type MessageReader interface {
 	FetchMessage(ctx context.Context) (kafka.Message, error)
 	CommitMessages(ctx context.Context, msgs ...kafka.Message) error
@@ -56,27 +48,18 @@ func NewFeedConsumer(kafkaConfig config.KafkaConfig, feedProcessor TickProcessor
 }
 
 const (
-	// batchSize is the most messages processed per batch.
-	batchSize = 100
-	// batchMaxWait bounds how long a partial batch waits for more messages once its
-	// first message has arrived, so a slow feed is not held back until a batch fills.
-	batchMaxWait = 10 * time.Millisecond
-	// readErrorBackoff is the pause after a failed read, so a persistent error
-	// (broker down) does not spin.
+	batchSize        = 100
+	batchMaxWait     = 10 * time.Millisecond
 	readErrorBackoff = 100 * time.Millisecond
 )
 
 func (fc *FeedConsumer) StartReadMessageLoop(ctx context.Context) error {
-	// Ticks are processed on a context that outlives shutdown: a batch that has been
-	// read must be finished, and cancelling it would fail the vector writes.
 	processCtx := context.WithoutCancel(ctx)
 
 	for {
 		msgs := fc.readBatch(ctx)
 		fc.processBatch(processCtx, msgs)
 
-		// Offsets are committed after the batch has been processed (at-least-once), on a
-		// context that outlives shutdown and has no deadline.
 		if len(msgs) > 0 {
 			if err := fc.TickConsumer.CommitMessages(processCtx, msgs...); err != nil {
 				log.Printf("Failed to commit %d offsets: %v", len(msgs), err)
@@ -89,9 +72,6 @@ func (fc *FeedConsumer) StartReadMessageLoop(ctx context.Context) error {
 	}
 }
 
-// readBatch blocks until at least one message has arrived, then collects whatever else
-// arrives within batchMaxWait, up to batchSize. It returns what it has collected, empty
-// only on shutdown.
 func (fc *FeedConsumer) readBatch(ctx context.Context) []kafka.Message {
 	msgs := make([]kafka.Message, 0, batchSize)
 
