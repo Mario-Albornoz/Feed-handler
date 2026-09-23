@@ -4,6 +4,8 @@ import (
 	"encoding/gob"
 	"os"
 	"sync"
+
+	"github.com/mario-albornoz/feed-handler-aggregator/internal/stats"
 )
 
 type InstrumentRegistry struct {
@@ -15,6 +17,7 @@ type InstrumentRegistry struct {
 	cusumSlack float64
 
 	minPriceObservations int64
+	limits               *stats.Limits
 }
 
 func NewInstrumentRegistry(fastWindow, slowWindow, cusumSlack float64) *InstrumentRegistry {
@@ -24,6 +27,14 @@ func NewInstrumentRegistry(fastWindow, slowWindow, cusumSlack float64) *Instrume
 		slowWindow:  slowWindow,
 		cusumSlack:  cusumSlack,
 	}
+}
+
+// SetLimits sets the z-score limits for instruments created from now on (call it
+// before ticks flow). Without it instruments use stats.DefaultLimits.
+func (r *InstrumentRegistry) SetLimits(limits stats.Limits) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.limits = &limits
 }
 
 // SetMinPriceObservations sets the price warm-up requirement for instruments created
@@ -51,6 +62,9 @@ func (r *InstrumentRegistry) GetOrCreate(key InstrumentKey) *InstrumentState {
 	state = NewInstrumentState(r.fastWindow, r.slowWindow, r.cusumSlack)
 	if r.minPriceObservations > 0 {
 		state.SetMinPriceObservations(r.minPriceObservations)
+	}
+	if r.limits != nil {
+		state.SetLimits(*r.limits)
 	}
 	r.instruments[key] = state
 

@@ -322,6 +322,10 @@ func (b *SystemBuilder) WithRegistry() *SystemBuilder {
 	if b.config.Windows.MinPriceObservations > 0 {
 		b.registry.SetMinPriceObservations(b.config.Windows.MinPriceObservations)
 	}
+	limits := b.config.Limits()
+	b.registry.SetLimits(limits)
+	log.Printf("z-score limits: intertick std >= %.1f ms, price-step std >= %.2g x price, CUSUM step within +-%.1f",
+		limits.IntertickStdFloorMs, limits.PriceStepStdFloorFrac, limits.CusumZClip)
 
 	//temporarly disabled registry snapshot mechanism for monitoring and testing purposes
 	withPreLoadedRegistry := false

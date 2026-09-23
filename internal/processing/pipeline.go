@@ -209,8 +209,9 @@ func (p *StatsUpdaterProcessor) Process(ctx context.Context, state *ProcessingSt
 	allStats.UpdateIntertick(state.Intertick)
 	state.InstrumentState.Gaps.Observe(state.Intertick)
 	if state.HasPriceStep {
-		sessionStats.UpdatePriceStep(state.PriceStep)
-		allStats.UpdatePriceStep(state.PriceStep)
+		price := state.InstrumentState.PrevLastTradedPrice
+		sessionStats.UpdatePriceStep(state.PriceStep, price)
+		allStats.UpdatePriceStep(state.PriceStep, price)
 	}
 
 	return nil
@@ -252,7 +253,8 @@ func (p *ZScoreCalculatorProcessor) Process(ctx context.Context, state *Processi
 	// A message without a price step says nothing about the price: neutral z-scores.
 	state.ZFastPriceStep, state.ZSlowPriceStep = 0, 0
 	if state.HasPriceStep {
-		state.ZFastPriceStep, state.ZSlowPriceStep = state.RelevantPriceStats.PriceStepZScores(state.PriceStep)
+		state.ZFastPriceStep, state.ZSlowPriceStep = state.RelevantPriceStats.PriceStepZScores(
+			state.PriceStep, state.InstrumentState.PrevLastTradedPrice)
 	}
 
 	return nil

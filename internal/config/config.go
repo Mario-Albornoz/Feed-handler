@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/mario-albornoz/feed-handler-aggregator/internal/stats"
 	"gopkg.in/yaml.v3"
 )
 
@@ -38,11 +39,18 @@ type WindowConfig struct {
 	// MinPriceObservations is how many trade-to-trade price steps an instrument needs
 	// before its price statistics count as warm (default 20). Trades are rare.
 	MinPriceObservations int64 `yaml:"min_price_observations"`
+	// TimingResolutionMs and PriceResolutionBps are the resolutions of the measurements
+	// (the feature clock and the price grid). A standard deviation is never taken below
+	// resolution/sqrt(12), the rounding noise. 0 keeps the defaults (1000 ms, 1 bp).
+	TimingResolutionMs float64 `yaml:"timing_resolution_ms"`
+	PriceResolutionBps float64 `yaml:"price_resolution_bps"`
 }
 
 type CUSUMConfig struct {
 	Slack     float64 `yaml:"slack"`
 	Threshold float64 `yaml:"threshold"`
+	// ZClip bounds the z-score one observation adds to a CUSUM (0 keeps the default, 10).
+	ZClip float64 `yaml:"z_clip"`
 }
 
 // SilenceConfig configures silence detection: an instrument is silent when it has been
@@ -79,6 +87,22 @@ type AlertsConfig struct {
 	// KafkaSilenceAlerts also publishes silence alerts to kafka.alert_topic.
 	// Defaults to true when omitted.
 	KafkaSilenceAlerts *bool `yaml:"kafka_silence_alerts"`
+}
+
+// Limits returns the z-score limits, with the defaults for values left at 0.
+func (cfg *AggregatorConfig) Limits() stats.Limits {
+	return stats.NewLimits(
+		orDefault(cfg.Windows.TimingResolutionMs, stats.DefaultTimingResolutionMs),
+		orDefault(cfg.Windows.PriceResolutionBps, stats.DefaultPriceResolutionBps),
+		orDefault(cfg.CUSUM.ZClip, stats.DefaultCusumZClip),
+	)
+}
+
+func orDefault(v, def float64) float64 {
+	if v > 0 {
+		return v
+	}
+	return def
 }
 
 // KafkaSilenceEnabled reports whether silence alerts are published to Kafka.
@@ -160,6 +184,13 @@ func (cfg *AggregatorConfig) Validate() error {
 	}
 	if cfg.CUSUM.Threshold <= 0 {
 		return fmt.Errorf("cusum threshold must be positive, got %f", cfg.CUSUM.Threshold)
+	}
+	if cfg.CUSUM.ZClip < 0 {
+		return fmt.Errorf("cusum z_clip must be non-negative, got %f", cfg.CUSUM.ZClip)
+	}
+	if cfg.Windows.TimingResolutionMs < 0 || cfg.Windows.PriceResolutionBps < 0 {
+		return fmt.Errorf("timing_resolution_ms and price_resolution_bps must be non-negative, got %f and %f",
+			cfg.Windows.TimingResolutionMs, cfg.Windows.PriceResolutionBps)
 	}
 
 	// Validate Silence config

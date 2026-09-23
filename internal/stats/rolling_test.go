@@ -35,11 +35,11 @@ func TestZScoreNormalTick(t *testing.T) {
 func TestZScoreAnomalousTick(t *testing.T) {
 	rs := NewRollingStats(60, 14400, 0.5)
 	for i := 0; i < 200; i++ {
-		// small variation: a perfectly constant series has zero variance and no z-score
-		rs.UpdateIntertick(10.0 + float64(i%2))
+		// whole seconds, as on the feature clock
+		rs.UpdateIntertick(1000.0 * float64(1+i%2))
 	}
-	// Feed a tick with 100x normal intertick interval
-	zfi, _ := rs.IntertickZScores(1000.0)
+	// Feed a tick with about 40x the normal intertick interval
+	zfi, _ := rs.IntertickZScores(60000.0)
 	if zfi < 5.0 {
 		t.Errorf("z_intertick_fast for anomalous tick: got %.4f, want > 5.0", zfi)
 	}
@@ -50,13 +50,13 @@ func TestCUSUMAccumulates(t *testing.T) {
 	rs := NewRollingStats(60, 14400, 0.5)
 	// Warm up with normal data
 	for i := 0; i < 200; i++ {
-		rs.UpdatePriceStep(0.01)
+		rs.UpdatePriceStep(0.01, 100)
 	}
 	initialCusum := rs.CusumPriceStep
 	// Feed gradually increasing price steps
 	for i := 0; i < 100; i++ {
 		drift := 0.01 + float64(i)*0.002
-		rs.UpdatePriceStep(drift)
+		rs.UpdatePriceStep(drift, 100)
 	}
 	if rs.CusumPriceStep <= initialCusum {
 		t.Errorf("CUSUM did not accumulate during drift: initial=%.4f final=%.4f",
@@ -74,12 +74,12 @@ func TestCUSUMResets(t *testing.T) {
 	rs := NewRollingStats(60, 14400, 0.5)
 	// Warm up with baseline
 	for i := 0; i < 200; i++ {
-		rs.UpdatePriceStep(0.01)
+		rs.UpdatePriceStep(0.01, 100)
 	}
 	
 	// Induce a brief spike to build up CUSUM
 	for i := 0; i < 10; i++ {
-		rs.UpdatePriceStep(0.1) // Large spike
+		rs.UpdatePriceStep(0.1, 100) // Large spike
 	}
 	
 	spikedCusum := rs.CusumPriceStep
@@ -89,7 +89,7 @@ func TestCUSUMResets(t *testing.T) {
 	
 	// Return below baseline (negative z-scores help reset faster)
 	for i := 0; i < 500; i++ {
-		rs.UpdatePriceStep(0.005) // Below baseline
+		rs.UpdatePriceStep(0.005, 100) // Below baseline
 	}
 	
 	// CUSUM should have decreased (slack causes decay when z-scores are low/negative)
@@ -199,12 +199,79 @@ func TestTimingAndPriceWarmUpIndependently(t *testing.T) {
 	}
 
 	for i := 0; i < 60; i++ {
-		rs.UpdatePriceStep(0.5)
+		rs.UpdatePriceStep(0.5, 100)
 	}
 	if rs.PriceObservationCount < rs.MinPriceObservations {
 		t.Error("price statistics should be warm after 60 price observations")
 	}
 	if rs.ObservationCount != 60 {
 		t.Errorf("price updates must not change the timing count, got %d", rs.ObservationCount)
+	}
+}
+
+// TestFirstObservationIsNeutral: with no observation yet there is no baseline to
+// score against, so the z-scores and the CUSUM stay at 0.
+func TestFirstObservationIsNeutral(t *testing.T) {
+	rs := NewRollingStats(60, 700, 0.5)
+	if zf, zs := rs.IntertickZScores(5000); zf != 0 || zs != 0 {
+		t.Errorf("no baseline: got %v/%v, want 0/0", zf, zs)
+	}
+	rs.UpdateIntertick(5000)
+	rs.UpdatePriceStep(0.5, 100)
+	if rs.CusumIntertick != 0 || rs.CusumPriceStep != 0 {
+		t.Errorf("first observation moved the CUSUM: %v/%v", rs.CusumIntertick, rs.CusumPriceStep)
+	}
+}
+
+// TestStdFloorBoundsZAfterConstantRun is the case that saturated the features: a long
+// run of identical values shrinks the variance towards 0, and the next ordinary value
+// scored in the millions. The floor keeps it at the size of the change in units of
+// the measurement resolution.
+func TestStdFloorBoundsZAfterConstantRun(t *testing.T) {
+	rs := NewRollingStats(60, 700, 0.5)
+	rs.UpdatePriceStep(0.02, 100)
+	for i := 0; i < 1000; i++ {
+		rs.UpdatePriceStep(0, 100) // half of all trade-to-trade steps are 0
+	}
+	floor := rs.Limits.PriceStepStdFloorFrac * 100
+	zf, zs := rs.PriceStepZScores(0.02, 100)
+	if want := 0.02 / floor; zf > want*1.01 || zs > want*1.01 {
+		t.Errorf("one-tick step after a run of zeros: got %.1f/%.1f, want at most %.1f", zf, zs, want)
+	}
+
+	rs = NewRollingStats(60, 700, 0.5)
+	for i := 0; i < 1000; i++ {
+		rs.UpdateIntertick(1000)
+	}
+	zf, _ = rs.IntertickZScores(2000)
+	if want := 1000 / rs.Limits.IntertickStdFloorMs; math.Abs(zf-want) > 0.01 {
+		t.Errorf("one extra second after constant 1 s gaps: got %.2f, want %.2f", zf, want)
+	}
+}
+
+// TestCusumStepIsClipped verifies that one extreme observation adds at most the clip
+// to the CUSUM, so it can recover at the slack rate.
+func TestCusumStepIsClipped(t *testing.T) {
+	warm := func() *RollingStats {
+		rs := NewRollingStats(60, 700, 0.5)
+		for i := 0; i < 100; i++ {
+			rs.UpdatePriceStep(0.02*float64(i%2), 100)
+		}
+		return rs
+	}
+
+	rs := warm()
+	before := rs.CusumPriceStep
+	rs.UpdatePriceStep(100, 100) // an implausible price: the step is the whole price
+	if got, max := rs.CusumPriceStep-before, rs.Limits.CusumZClip-rs.CusumSlack; got > max+1e-9 {
+		t.Errorf("CUSUM rose by %.1f, want at most %.1f", got, max)
+	}
+
+	rs = warm()
+	rs.Limits.CusumZClip = 0 // disabled: the raw z-score goes in
+	before = rs.CusumPriceStep
+	rs.UpdatePriceStep(100, 100)
+	if rs.CusumPriceStep-before <= DefaultCusumZClip {
+		t.Error("with the clip disabled the CUSUM should take the full z-score")
 	}
 }

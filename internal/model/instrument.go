@@ -66,6 +66,14 @@ func (instrumentState *InstrumentState) SetMinPriceObservations(n int64) {
 	}
 }
 
+// SetLimits sets the z-score limits on every statistics set.
+func (instrumentState *InstrumentState) SetLimits(limits stats.Limits) {
+	instrumentState.AllSessionStats.Limits = limits
+	for _, s := range instrumentState.StatsBySession {
+		s.Limits = limits
+	}
+}
+
 // SameDay reports whether two times fall on the same calendar day. Times in the data
 // are exchange-local wall-clock time labelled UTC, so the day is taken in UTC.
 func SameDay(a, b time.Time) bool {

@@ -13,10 +13,20 @@ windows:
   # Trades are rare (the median instrument has about 10 a day), so this is lower than the
   # 50 messages the timing statistics need.
   min_price_observations: 20
+  # A z-score is taken against statistics that do not yet include the observation, so
+  # nothing caps it: after a run of identical values (half of all trade-to-trade price
+  # steps are 0) the variance is near 0 and the next ordinary value scores in the
+  # millions. No standard deviation is used below resolution/sqrt(12), the rounding
+  # noise of the measurement.
+  timing_resolution_ms: 1000     # the feature clock is the whole-second update time
+  price_resolution_bps: 1.0      # price grid, in bp of the price (median non-zero step ~1.5 bp)
 
 cusum:
   slack: 0.5
   threshold: 5.0
+  # Largest z-score one observation adds to a CUSUM. Without it one extreme value raised
+  # the CUSUM by up to 1e6, which the slack (0.5 a step) never works off.
+  z_clip: 10.0
 
 # Silence: an instrument is silent when it has been quiet for longer than a high quantile
 # of its OWN past gaps between messages. (A multiple of the mean gap was tried and fires
