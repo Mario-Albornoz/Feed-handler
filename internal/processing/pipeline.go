@@ -35,6 +35,11 @@ type ProcessingState struct {
 	// measurement of the feed, so it is not an observation.
 	NewDay bool
 
+	// HasIntertick: the instrument has a previous message on the same day, so Intertick
+	// is a real interval. The first message of an instrument and the first of a new day
+	// carry a placeholder 0 that must be neither observed nor scored.
+	HasIntertick bool
+
 	// HasTrade: the message carries a last traded price. HasPriceStep: it is a trade and
 	// the instrument has a previous trade, so PriceStep (the change between the two
 	// trades) is defined.
@@ -156,6 +161,7 @@ func (p *MetricsCalculatorProcessor) Process(ctx context.Context, state *Process
 	featureTime := state.Tick.FeatureTime()
 	last := state.InstrumentState.LastTickTime
 	state.NewDay = false
+	state.HasIntertick = false
 	switch {
 	case last.IsZero():
 		state.Intertick = 0.0
@@ -164,6 +170,7 @@ func (p *MetricsCalculatorProcessor) Process(ctx context.Context, state *Process
 		state.NewDay = true
 	default:
 		state.Intertick = float64(featureTime.Sub(last).Milliseconds())
+		state.HasIntertick = true
 	}
 
 	// Most messages are quote updates whose last price is empty (0 after parsing). They
@@ -190,7 +197,7 @@ func (p *StatsUpdaterProcessor) Process(ctx context.Context, state *ProcessingSt
 	// The first message of an instrument, and the first of a new day, have no usable
 	// predecessor: their inter-tick interval (0, or the overnight closure) is not an
 	// observation, and under a running average during warm-up it would dominate.
-	if state.InstrumentState.LastTickTime.IsZero() || state.NewDay {
+	if !state.HasIntertick {
 		return nil
 	}
 
@@ -234,7 +241,13 @@ func (p *FallbackSelectorProcessor) Process(ctx context.Context, state *Processi
 type ZScoreCalculatorProcessor struct{}
 
 func (p *ZScoreCalculatorProcessor) Process(ctx context.Context, state *ProcessingState) error {
-	state.ZFastIntertick, state.ZSlowIntertick = state.RelevantStats.IntertickZScores(state.Intertick)
+	// The first message of an instrument or of a day has no inter-tick interval (Intertick
+	// is a placeholder 0). Scored against a steady baseline whose variance has decayed
+	// towards zero, that 0 became a z-score in the billions: neutral z-scores instead.
+	state.ZFastIntertick, state.ZSlowIntertick = 0, 0
+	if state.HasIntertick {
+		state.ZFastIntertick, state.ZSlowIntertick = state.RelevantStats.IntertickZScores(state.Intertick)
+	}
 
 	// A message without a price step says nothing about the price: neutral z-scores.
 	state.ZFastPriceStep, state.ZSlowPriceStep = 0, 0

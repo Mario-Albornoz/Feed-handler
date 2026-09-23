@@ -3,6 +3,7 @@ package processing
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
@@ -607,6 +608,43 @@ func TestOvernightGapIsNotAnObservation(t *testing.T) {
 	processor.ProcessRawTicks(context.Background(), msgWithClocks(morning.Add(2*time.Second), morning.Add(2*time.Second), 0))
 	if state.Gaps.N != 2 {
 		t.Errorf("gaps within the new day are observed again, got %d", state.Gaps.N)
+	}
+}
+
+// The first message of a new day has no interval (a placeholder 0). Against a steady
+// baseline whose variance has decayed towards zero it used to score about -1e9 (the
+// market-open spikes of run thesis_20260923_003839); it must get neutral z-scores.
+func TestNewDayFirstMessageHasNeutralTimingZScores(t *testing.T) {
+	processor, registry, emitter := processorWithOptions(t)
+	key := model.InstrumentKey{Source: "ETR", InstrumentIdentifier: "SAP.ETR"}
+	at := time.Date(2021, 11, 10, 10, 0, 0, 0, time.UTC)
+
+	// one 2 s interval, then a long run of identical 1 s intervals: the variance decays
+	// towards zero without reaching it
+	processor.ProcessRawTicks(context.Background(), msgWithClocks(at, at, 0))
+	at = at.Add(2 * time.Second)
+	processor.ProcessRawTicks(context.Background(), msgWithClocks(at, at, 0))
+	for i := 0; i < 500; i++ {
+		at = at.Add(time.Second)
+		processor.ProcessRawTicks(context.Background(), msgWithClocks(at, at, 0))
+	}
+	state := registry.GetOrCreate(key)
+	if std := math.Sqrt(state.AllSessionStats.FastVarIntertick); std <= 1e-10 || std > 1 {
+		t.Fatalf("setup: the fast baseline should be steady (std under 1 ms against a 1 s mean) but nonzero, std %g", std)
+	}
+
+	morning := time.Date(2021, 11, 11, 9, 30, 0, 0, time.UTC)
+	processor.ProcessRawTicks(context.Background(), msgWithClocks(morning, morning, 0))
+	v := emitter.vectors[len(emitter.vectors)-1]
+	if v.ZIntertickFast != 0 || v.ZIntertickSlow != 0 {
+		t.Errorf("the new day's first message has no interval to score: z fast %g, z slow %g",
+			v.ZIntertickFast, v.ZIntertickSlow)
+	}
+
+	// the next message of the day has a real interval (2 s against a 1 s baseline)
+	processor.ProcessRawTicks(context.Background(), msgWithClocks(morning.Add(2*time.Second), morning.Add(2*time.Second), 0))
+	if v := emitter.vectors[len(emitter.vectors)-1]; v.ZIntertickFast <= 0 {
+		t.Errorf("a real interval within the day is scored again, z fast %g", v.ZIntertickFast)
 	}
 }
 
