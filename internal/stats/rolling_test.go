@@ -11,7 +11,7 @@ func TestWelfordConvergence(t *testing.T) {
 	rs := NewRollingStats(60, 14400, 0.5)
 	// Feed 500 ticks with intertick=10ms, step=0.01
 	for i := 0; i < 500; i++ {
-		rs.Update(10.0, 0.01)
+		rs.UpdateIntertick(10.0)
 	}
 	// Fast mean should be close to 10ms
 	if math.Abs(rs.FastMeanIntertick-10.0) > 1.0 {
@@ -23,9 +23,9 @@ func TestWelfordConvergence(t *testing.T) {
 func TestZScoreNormalTick(t *testing.T) {
 	rs := NewRollingStats(60, 14400, 0.5)
 	for i := 0; i < 200; i++ {
-		rs.Update(10.0, 0.01)
+		rs.UpdateIntertick(10.0)
 	}
-	zfi, _, _, _ := rs.ZScores(10.0, 0.01)
+	zfi, _ := rs.IntertickZScores(10.0)
 	if math.Abs(zfi) > 1.0 {
 		t.Errorf("z_intertick_fast for normal tick: got %.4f, want near 0", zfi)
 	}
@@ -36,10 +36,10 @@ func TestZScoreAnomalousTick(t *testing.T) {
 	rs := NewRollingStats(60, 14400, 0.5)
 	for i := 0; i < 200; i++ {
 		// small variation: a perfectly constant series has zero variance and no z-score
-		rs.Update(10.0+float64(i%2), 0.01)
+		rs.UpdateIntertick(10.0 + float64(i%2))
 	}
 	// Feed a tick with 100x normal intertick interval
-	zfi, _, _, _ := rs.ZScores(1000.0, 0.01)
+	zfi, _ := rs.IntertickZScores(1000.0)
 	if zfi < 5.0 {
 		t.Errorf("z_intertick_fast for anomalous tick: got %.4f, want > 5.0", zfi)
 	}
@@ -50,13 +50,13 @@ func TestCUSUMAccumulates(t *testing.T) {
 	rs := NewRollingStats(60, 14400, 0.5)
 	// Warm up with normal data
 	for i := 0; i < 200; i++ {
-		rs.Update(10.0, 0.01)
+		rs.UpdatePriceStep(0.01)
 	}
 	initialCusum := rs.CusumPriceStep
 	// Feed gradually increasing price steps
 	for i := 0; i < 100; i++ {
 		drift := 0.01 + float64(i)*0.002
-		rs.Update(10.0, drift)
+		rs.UpdatePriceStep(drift)
 	}
 	if rs.CusumPriceStep <= initialCusum {
 		t.Errorf("CUSUM did not accumulate during drift: initial=%.4f final=%.4f",
@@ -74,12 +74,12 @@ func TestCUSUMResets(t *testing.T) {
 	rs := NewRollingStats(60, 14400, 0.5)
 	// Warm up with baseline
 	for i := 0; i < 200; i++ {
-		rs.Update(10.0, 0.01)
+		rs.UpdatePriceStep(0.01)
 	}
 	
 	// Induce a brief spike to build up CUSUM
 	for i := 0; i < 10; i++ {
-		rs.Update(10.0, 0.1) // Large spike
+		rs.UpdatePriceStep(0.1) // Large spike
 	}
 	
 	spikedCusum := rs.CusumPriceStep
@@ -89,7 +89,7 @@ func TestCUSUMResets(t *testing.T) {
 	
 	// Return below baseline (negative z-scores help reset faster)
 	for i := 0; i < 500; i++ {
-		rs.Update(10.0, 0.005) // Below baseline
+		rs.UpdatePriceStep(0.005) // Below baseline
 	}
 	
 	// CUSUM should have decreased (slack causes decay when z-scores are low/negative)
@@ -106,7 +106,7 @@ func TestWarmupFlag(t *testing.T) {
 		t.Error("should not be warm at start")
 	}
 	for i := 0; i < int(rs.MinObservations); i++ {
-		rs.Update(10.0, 0.01)
+		rs.UpdateIntertick(10.0)
 	}
 	if !rs.IsWarm() {
 		t.Error("should be warm after MinObservations ticks")
@@ -117,7 +117,7 @@ func TestWarmupFlag(t *testing.T) {
 func TestGapFlag(t *testing.T) {
 	rs := NewRollingStats(60, 14400, 0.5)
 	for i := 0; i < 100; i++ {
-		rs.Update(10.0, 0.01)
+		rs.UpdateIntertick(10.0)
 	}
 	// 10ms mean * 5x multiplier = 50ms threshold
 	if rs.GapFlag(40.0) != 0 {
@@ -136,7 +136,7 @@ func TestWarmupIsPlainRunningAverage(t *testing.T) {
 
 	var sum float64
 	for _, v := range values {
-		rs.Update(v, v)
+		rs.UpdateIntertick(v)
 		sum += v
 	}
 	n := float64(len(values))
@@ -160,7 +160,7 @@ func TestWarmupIsPlainRunningAverage(t *testing.T) {
 func TestSlowMeanUnbiasedEarly(t *testing.T) {
 	rs := NewRollingStats(60, 14400, 0.5)
 	for i := 0; i < int(rs.MinObservations); i++ {
-		rs.Update(100.0, 0.1)
+		rs.UpdateIntertick(100.0)
 	}
 	if math.Abs(rs.SlowMeanIntertick-100.0) > 1e-6 {
 		t.Errorf("slow mean after %d observations: got %.4f, want 100", rs.MinObservations, rs.SlowMeanIntertick)
@@ -172,10 +172,10 @@ func TestSlowMeanUnbiasedEarly(t *testing.T) {
 func TestExponentialTakesOverAfterWindow(t *testing.T) {
 	rs := NewRollingStats(10, 20, 0.5) // alpha_fast = 2/11
 	for i := 0; i < 100; i++ {
-		rs.Update(10.0, 0.01)
+		rs.UpdateIntertick(10.0)
 	}
 	for i := 0; i < 100; i++ {
-		rs.Update(50.0, 0.01)
+		rs.UpdateIntertick(50.0)
 	}
 	// long after the level change the fast mean has adapted, which a plain running
 	// average of all 200 observations (30) would not
@@ -191,8 +191,8 @@ func TestTimingAndPriceWarmUpIndependently(t *testing.T) {
 	for i := 0; i < 60; i++ {
 		rs.UpdateIntertick(10.0)
 	}
-	if !rs.IsWarm() || rs.PriceIsWarm() {
-		t.Errorf("60 timing observations: IsWarm=%v (want true), PriceIsWarm=%v (want false)", rs.IsWarm(), rs.PriceIsWarm())
+	if priceWarm := rs.PriceObservationCount >= rs.MinPriceObservations; !rs.IsWarm() || priceWarm {
+		t.Errorf("60 timing observations: IsWarm=%v (want true), price warm=%v (want false)", rs.IsWarm(), priceWarm)
 	}
 	if rs.PriceObservationCount != 0 || rs.SlowMeanPriceStep != 0 || rs.CusumPriceStep != 0 {
 		t.Error("timing updates must not touch the price statistics")
@@ -201,7 +201,7 @@ func TestTimingAndPriceWarmUpIndependently(t *testing.T) {
 	for i := 0; i < 60; i++ {
 		rs.UpdatePriceStep(0.5)
 	}
-	if !rs.PriceIsWarm() {
+	if rs.PriceObservationCount < rs.MinPriceObservations {
 		t.Error("price statistics should be warm after 60 price observations")
 	}
 	if rs.ObservationCount != 60 {

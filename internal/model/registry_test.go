@@ -86,8 +86,8 @@ func TestRegistrySaveLoadRoundTrip(t *testing.T) {
 
 		// Warm up with observations
 		for i := 0; i < 100; i++ {
-			state.StatsBySession[Open].Update(10.0, 0.01)
-			state.AllSessionStats.Update(10.0, 0.01)
+			state.StatsBySession[Open].UpdateIntertick(10.0)
+			state.AllSessionStats.UpdateIntertick(10.0)
 		}
 
 		state.LastTickTime = time.Now()
@@ -309,8 +309,8 @@ func TestRegistrySave_AllSessionsStats(t *testing.T) {
 
 	// Update both session-specific and fallback stats
 	for i := 0; i < 100; i++ {
-		state.StatsBySession[Open].Update(10.0, 0.01)
-		state.AllSessionStats.Update(15.0, 0.02)
+		state.StatsBySession[Open].UpdateIntertick(10.0)
+		state.AllSessionStats.UpdateIntertick(15.0)
 	}
 
 	originalSessionMean := state.StatsBySession[Open].SlowMeanIntertick

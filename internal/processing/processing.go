@@ -64,9 +64,9 @@ func NewFeedProcessor(
 	pipeline = append(pipeline, []TickProcessor{
 		&SessionResolverProcessor{resolver: resolver},
 		&MetricsCalculatorProcessor{},
-		&StatsUpdaterProcessor{},
 		&FallbackSelectorProcessor{},
 		&ZScoreCalculatorProcessor{},
+		&StatsUpdaterProcessor{},
 		&CusumExtractorProcessor{},
 		&FlagCalculatorProcessor{},
 		&VectorBuilderProcessor{config: &aggregatorConfig},

@@ -667,7 +667,7 @@ func TestPriceWarmupRequirementIsConfigurable(t *testing.T) {
 		processor.ProcessRawTicks(context.Background(), msgAt(base.Add(time.Duration(i)*time.Second), 100+float64(i)))
 	}
 	state := registry.GetOrCreate(model.InstrumentKey{Source: "ETR", InstrumentIdentifier: "SAP.ETR"})
-	if !state.AllSessionStats.PriceIsWarm() {
+	if state.AllSessionStats.PriceObservationCount < state.AllSessionStats.MinPriceObservations {
 		t.Errorf("5 price steps should warm the price statistics when the requirement is 5 (count %d, min %d)",
 			state.AllSessionStats.PriceObservationCount, state.AllSessionStats.MinPriceObservations)
 	}

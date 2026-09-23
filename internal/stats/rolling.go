@@ -53,84 +53,48 @@ func NewRollingStats(fastWindowTicks, slowWindowTicks, cusumSlack float64) *Roll
 	}
 }
 
-// UpdateIntertick records one inter-tick observation (milliseconds since the
-// instrument's previous message). It is called for every message, trade or quote.
-//
-// The averages are exponential with the configured window, but during warm-up they
-// are plain running averages: the weight of observation n is max(alpha, 1/n). An
-// exponential average that starts at zero needs several windows to converge (with a
-// n-tick window it is under 1% of the true mean after 50 observations), which
-// would distort every slow-timescale z-score and silence threshold early in an
-// instrument's history. With weight 1/n the mean and variance are exactly the sample
-// mean and variance until 1/n falls below alpha, then the exponential takes over.
 func (r *RollingStats) UpdateIntertick(intertick float64) {
 	r.ObservationCount++
+	// Weight max(alpha, 1/n): a plain running average until 1/n < alpha, so the averages
+	// are not biased towards their zero start early in an instrument's history.
 	warmup := 1.0 / float64(r.ObservationCount)
 	fastAlpha := math.Max(r.FastAlpha, warmup)
 	slowAlpha := math.Max(r.SlowAlpha, warmup)
 
-	r.FastMeanIntertick, r.FastVarIntertick = updateEMA(r.FastMeanIntertick, r.FastVarIntertick, intertick, fastAlpha)
-	r.SlowMeanIntertick, r.SlowVarIntertick = updateEMA(r.SlowMeanIntertick, r.SlowVarIntertick, intertick, slowAlpha)
-
 	zSlowIntertick := zScore(intertick, r.SlowMeanIntertick, r.SlowVarIntertick)
 	r.CusumIntertick = math.Max(0, r.CusumIntertick+zSlowIntertick-r.CusumSlack)
+
+	r.FastMeanIntertick, r.FastVarIntertick = updateEMA(r.FastMeanIntertick, r.FastVarIntertick, intertick, fastAlpha)
+	r.SlowMeanIntertick, r.SlowVarIntertick = updateEMA(r.SlowMeanIntertick, r.SlowVarIntertick, intertick, slowAlpha)
 }
 
-// UpdatePriceStep records one price-step observation: the absolute change between two
 func (r *RollingStats) UpdatePriceStep(priceStep float64) {
 	r.PriceObservationCount++
 	warmup := 1.0 / float64(r.PriceObservationCount)
 	fastAlpha := math.Max(r.FastAlpha, warmup)
 	slowAlpha := math.Max(r.SlowAlpha, warmup)
 
-	r.FastMeanPriceStep, r.FastVarPriceStep = updateEMA(r.FastMeanPriceStep, r.FastVarPriceStep, priceStep, fastAlpha)
-	r.SlowMeanPriceStep, r.SlowVarPriceStep = updateEMA(r.SlowMeanPriceStep, r.SlowVarPriceStep, priceStep, slowAlpha)
-
 	zSlowPriceStep := zScore(priceStep, r.SlowMeanPriceStep, r.SlowVarPriceStep)
 	r.CusumPriceStep = math.Max(0, r.CusumPriceStep+zSlowPriceStep-r.CusumSlack)
+
+	r.FastMeanPriceStep, r.FastVarPriceStep = updateEMA(r.FastMeanPriceStep, r.FastVarPriceStep, priceStep, fastAlpha)
+	r.SlowMeanPriceStep, r.SlowVarPriceStep = updateEMA(r.SlowMeanPriceStep, r.SlowVarPriceStep, priceStep, slowAlpha)
 }
 
-// Update records one message that has both an inter-tick interval and a price step.
-func (r *RollingStats) Update(intertick, priceStep float64) {
-	r.UpdateIntertick(intertick)
-	r.UpdatePriceStep(priceStep)
-}
-
-// IntertickZScores should be called after UpdateIntertick().
 func (r *RollingStats) IntertickZScores(intertick float64) (zFast, zSlow float64) {
 	return zScore(intertick, r.FastMeanIntertick, r.FastVarIntertick),
 		zScore(intertick, r.SlowMeanIntertick, r.SlowVarIntertick)
 }
 
-// PriceStepZScores should be called after UpdatePriceStep().
 func (r *RollingStats) PriceStepZScores(priceStep float64) (zFast, zSlow float64) {
 	return zScore(priceStep, r.FastMeanPriceStep, r.FastVarPriceStep),
 		zScore(priceStep, r.SlowMeanPriceStep, r.SlowVarPriceStep)
 }
 
-// ZScores should be called after Update().
-func (r *RollingStats) ZScores(intertick, priceStep float64) (
-	zFastIntertick, zFastPriceStep,
-	zSlowIntertick, zSlowPriceStep float64,
-) {
-	zFastIntertick, zSlowIntertick = r.IntertickZScores(intertick)
-	zFastPriceStep, zSlowPriceStep = r.PriceStepZScores(priceStep)
-	return
-}
-
-// IsWarm returns true when enough observations have been collected
-// for rolling statistics to be reliable.
 func (r *RollingStats) IsWarm() bool {
 	return r.ObservationCount >= r.MinObservations
 }
 
-// PriceIsWarm is IsWarm for the price-step statistics.
-func (r *RollingStats) PriceIsWarm() bool {
-	return r.PriceObservationCount >= r.MinPriceObservations
-}
-
-// GapFlag returns 1 if the current intertick interval exceeds
-// GapMultiplier times the fast rolling mean. 0 otherwise.
 func (r *RollingStats) GapFlag(intertickMs float64) int {
 	if r.FastMeanIntertick > 0 && intertickMs > r.GapMultiplier*r.FastMeanIntertick {
 		return 1
