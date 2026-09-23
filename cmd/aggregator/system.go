@@ -324,8 +324,9 @@ func (b *SystemBuilder) WithRegistry() *SystemBuilder {
 	}
 	limits := b.config.Limits()
 	b.registry.SetLimits(limits)
-	log.Printf("z-score limits: intertick std >= %.1f ms, price-step std >= %.2g x price, CUSUM step within +-%.1f",
-		limits.IntertickStdFloorMs, limits.PriceStepStdFloorFrac, limits.CusumZClip)
+	log.Printf("z-score limits: intertick std >= %.1f ms, price-step std >= %.2g x price, CUSUM step within +-%.1f, "+
+		"statistics winsorized at %.1f std (0 = off), CUSUM reset daily: %v",
+		limits.IntertickStdFloorMs, limits.PriceStepStdFloorFrac, limits.CusumZClip, limits.WinsorZ, limits.ResetCusumDaily)
 
 	//temporarly disabled registry snapshot mechanism for monitoring and testing purposes
 	withPreLoadedRegistry := false

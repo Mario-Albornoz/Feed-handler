@@ -194,6 +194,13 @@ func (p *StatsUpdaterProcessor) Process(ctx context.Context, state *ProcessingSt
 	state.InstrumentState.Lock()
 	defer state.InstrumentState.Unlock()
 
+	// A new session starts without the evidence of the previous one: the CUSUMs are reset
+	// on an instrument's first message of the day (before the early return below, which
+	// skips exactly that message).
+	if state.NewDay && state.InstrumentState.AllSessionStats.Limits.ResetCusumDaily {
+		state.InstrumentState.ResetCusums()
+	}
+
 	// The first message of an instrument, and the first of a new day, have no usable
 	// predecessor: their inter-tick interval (0, or the overnight closure) is not an
 	// observation, and under a running average during warm-up it would dominate.
@@ -314,6 +321,13 @@ func (p *VectorBuilderProcessor) Process(ctx context.Context, state *ProcessingS
 		HasTrade:            boolToInt(state.HasTrade),
 		WarmupFlag:          state.WarmupFlag,
 		SessionFallbackFlag: state.SessionFallbackFlag,
+
+		IntertickMs:  state.Intertick,
+		HasIntertick: boolToInt(state.HasIntertick),
+		PriceStep:    state.PriceStep,
+		HasPriceStep: boolToInt(state.HasPriceStep),
+		// StateUpdaterProcessor runs after this one, so this is still the previous trade
+		RefPrice: state.InstrumentState.PrevLastTradedPrice,
 	}
 
 	return nil

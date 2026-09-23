@@ -74,6 +74,14 @@ func (instrumentState *InstrumentState) SetLimits(limits stats.Limits) {
 	}
 }
 
+// ResetCusums clears the CUSUMs of every statistics set, at the start of a new day.
+func (instrumentState *InstrumentState) ResetCusums() {
+	instrumentState.AllSessionStats.ResetCusum()
+	for _, s := range instrumentState.StatsBySession {
+		s.ResetCusum()
+	}
+}
+
 // SameDay reports whether two times fall on the same calendar day. Times in the data
 // are exchange-local wall-clock time labelled UTC, so the day is taken in UTC.
 func SameDay(a, b time.Time) bool {

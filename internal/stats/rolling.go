@@ -57,6 +57,16 @@ type Limits struct {
 	// CusumZClip bounds the z-score each observation adds to the CUSUM, so one extreme
 	// value cannot hold the CUSUM up for days. 0 disables the clip.
 	CusumZClip float64
+	// WinsorZ winsorizes the statistics: once they are warm, an observation enters the
+	// mean and variance clipped to mean +- WinsorZ standard deviations (the same floored
+	// deviation it is scored against). Without it one outlier inflates the variance, and
+	// the next anomaly on the same instrument is measured against that inflated variance
+	// and looks ordinary (masking). The z-scores and the CUSUM still see the unclipped
+	// value. 0 disables it.
+	WinsorZ float64
+	// ResetCusumDaily sets an instrument's CUSUMs to 0 on its first message of a new day,
+	// so evidence accumulated in one session does not carry into the next.
+	ResetCusumDaily bool
 }
 
 // NewLimits derives the floors from the resolution of the measurements: the timing
@@ -69,15 +79,26 @@ func NewLimits(timingResolutionMs, priceResolutionBps, cusumZClip float64) Limit
 	}
 }
 
-// Defaults: whole-second update times, a 1 bp price grid, CUSUM steps within +-10.
+// Defaults: whole-second update times, a 1 bp price grid, CUSUM steps within +-10,
+// statistics winsorized at 10 standard deviations, CUSUMs reset every day.
+//
+// WinsorZ = 10 was chosen on the trades of 08 Nov with 1% simulated 2-5x spikes: every
+// level tried (3, 5, 10) removed the masking (spikes after a spike scoring below 5 fell
+// from 25% to 0%), and 10 changed normal traffic least (share of |z| > 5 on unmodified
+// trades 0.02% without winsorizing, 0.15% at 10, 0.27% at 5, 0.55% at 3): a tighter clip
+// also clips the heavy but normal tail of price steps and underestimates the variance.
 const (
 	DefaultTimingResolutionMs = 1000.0
 	DefaultPriceResolutionBps = 1.0
 	DefaultCusumZClip         = 10.0
+	DefaultWinsorZ            = 10.0
 )
 
 func DefaultLimits() Limits {
-	return NewLimits(DefaultTimingResolutionMs, DefaultPriceResolutionBps, DefaultCusumZClip)
+	l := NewLimits(DefaultTimingResolutionMs, DefaultPriceResolutionBps, DefaultCusumZClip)
+	l.WinsorZ = DefaultWinsorZ
+	l.ResetCusumDaily = true
+	return l
 }
 
 func NewRollingStats(fastWindowTicks, slowWindowTicks, cusumSlack float64) *RollingStats {
@@ -100,6 +121,12 @@ func (r *RollingStats) UpdateIntertick(intertick float64) {
 	_, zSlowIntertick := r.IntertickZScores(intertick)
 	r.CusumIntertick = math.Max(0, r.CusumIntertick+r.clip(zSlowIntertick)-r.CusumSlack)
 
+	// Winsorize only once warm: early estimates are too rough to clip against.
+	warm := r.ObservationCount >= r.MinObservations
+	floor := r.Limits.IntertickStdFloorMs
+	xFast := r.winsorize(intertick, r.FastMeanIntertick, r.FastVarIntertick, floor, warm)
+	xSlow := r.winsorize(intertick, r.SlowMeanIntertick, r.SlowVarIntertick, floor, warm)
+
 	r.ObservationCount++
 	// Weight max(alpha, 1/n): a plain running average until 1/n < alpha, so the averages
 	// are not biased towards their zero start early in an instrument's history.
@@ -107,8 +134,8 @@ func (r *RollingStats) UpdateIntertick(intertick float64) {
 	fastAlpha := math.Max(r.FastAlpha, warmup)
 	slowAlpha := math.Max(r.SlowAlpha, warmup)
 
-	r.FastMeanIntertick, r.FastVarIntertick = updateEMA(r.FastMeanIntertick, r.FastVarIntertick, intertick, fastAlpha)
-	r.SlowMeanIntertick, r.SlowVarIntertick = updateEMA(r.SlowMeanIntertick, r.SlowVarIntertick, intertick, slowAlpha)
+	r.FastMeanIntertick, r.FastVarIntertick = updateEMA(r.FastMeanIntertick, r.FastVarIntertick, xFast, fastAlpha)
+	r.SlowMeanIntertick, r.SlowVarIntertick = updateEMA(r.SlowMeanIntertick, r.SlowVarIntertick, xSlow, slowAlpha)
 }
 
 // UpdatePriceStep records one price step; price is the traded price the step is taken
@@ -117,13 +144,39 @@ func (r *RollingStats) UpdatePriceStep(priceStep, price float64) {
 	_, zSlowPriceStep := r.PriceStepZScores(priceStep, price)
 	r.CusumPriceStep = math.Max(0, r.CusumPriceStep+r.clip(zSlowPriceStep)-r.CusumSlack)
 
+	warm := r.PriceObservationCount >= r.MinPriceObservations
+	floor := r.Limits.PriceStepStdFloorFrac * math.Abs(price)
+	xFast := r.winsorize(priceStep, r.FastMeanPriceStep, r.FastVarPriceStep, floor, warm)
+	xSlow := r.winsorize(priceStep, r.SlowMeanPriceStep, r.SlowVarPriceStep, floor, warm)
+
 	r.PriceObservationCount++
 	warmup := 1.0 / float64(r.PriceObservationCount)
 	fastAlpha := math.Max(r.FastAlpha, warmup)
 	slowAlpha := math.Max(r.SlowAlpha, warmup)
 
-	r.FastMeanPriceStep, r.FastVarPriceStep = updateEMA(r.FastMeanPriceStep, r.FastVarPriceStep, priceStep, fastAlpha)
-	r.SlowMeanPriceStep, r.SlowVarPriceStep = updateEMA(r.SlowMeanPriceStep, r.SlowVarPriceStep, priceStep, slowAlpha)
+	r.FastMeanPriceStep, r.FastVarPriceStep = updateEMA(r.FastMeanPriceStep, r.FastVarPriceStep, xFast, fastAlpha)
+	r.SlowMeanPriceStep, r.SlowVarPriceStep = updateEMA(r.SlowMeanPriceStep, r.SlowVarPriceStep, xSlow, slowAlpha)
+}
+
+// winsorize clips an observation to mean +- WinsorZ standard deviations of the given
+// statistics before it updates them (see Limits.WinsorZ). The deviation is floored as in
+// zScore, so a collapsed variance cannot freeze the statistics.
+func (r *RollingStats) winsorize(x, mean, variance, stdFloor float64, warm bool) float64 {
+	c := r.Limits.WinsorZ
+	if !warm || c <= 0 {
+		return x
+	}
+	std := math.Max(math.Sqrt(variance), stdFloor)
+	if std < 1e-10 {
+		return x
+	}
+	return math.Max(mean-c*std, math.Min(mean+c*std, x))
+}
+
+// ResetCusum clears both cumulative sums (see Limits.ResetCusumDaily).
+func (r *RollingStats) ResetCusum() {
+	r.CusumIntertick = 0
+	r.CusumPriceStep = 0
 }
 
 // IntertickZScores scores an interval against the statistics before it is recorded.

@@ -20,6 +20,12 @@ windows:
   # noise of the measurement.
   timing_resolution_ms: 1000     # the feature clock is the whole-second update time
   price_resolution_bps: 1.0      # price grid, in bp of the price (median non-zero step ~1.5 bp)
+  # Winsorized statistics: once warm, an observation updates the mean and variance clipped
+  # to mean +- winsor_z standard deviations, so one outlier cannot inflate the variance and
+  # hide the next anomaly on the same instrument (masking). The z-scores and CUSUMs still
+  # see the full value. 10 removed the masking on 08 Nov with the least change to normal
+  # traffic (3 and 5 also clip the heavy but normal tail). A negative value disables it.
+  winsor_z: 10.0
 
 cusum:
   slack: 0.5
@@ -27,6 +33,9 @@ cusum:
   # Largest z-score one observation adds to a CUSUM. Without it one extreme value raised
   # the CUSUM by up to 1e6, which the slack (0.5 a step) never works off.
   z_clip: 10.0
+  # Reset each instrument's CUSUMs on its first message of a new day, so evidence from one
+  # session (e.g. an injection day) does not carry into the next.
+  reset_daily: true
 
 # Silence: an instrument is silent when it has been quiet for longer than a high quantile
 # of its OWN past gaps between messages. (A multiple of the mean gap was tried and fires

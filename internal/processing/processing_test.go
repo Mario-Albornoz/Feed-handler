@@ -3,6 +3,7 @@ package processing
 import (
 	"context"
 	"encoding/json"
+	"github.com/mario-albornoz/feed-handler-aggregator/internal/stats"
 	"math"
 	"testing"
 	"time"
@@ -769,4 +770,76 @@ func TestVectorCarriesTheMessageSequenceNumber(t *testing.T) {
 			t.Errorf("vector %d: seq %d, want %d", i, emitter.vectors[i].Seq, want)
 		}
 	}
+}
+
+// TestVectorCarriesTheRawMeasurements checks the un-normalized fields an ablation needs:
+// the inter-tick interval, the price step and the reference price, with flags that tell a
+// real 0 from a placeholder.
+func TestVectorCarriesTheRawMeasurements(t *testing.T) {
+	processor, _, emitter := processorWithOptions(t)
+	base := time.Date(2021, 11, 11, 10, 0, 0, 0, time.UTC)
+
+	processor.ProcessRawTicks(context.Background(), msgAt(base, 100))                  // first message, a trade
+	processor.ProcessRawTicks(context.Background(), msgAt(base.Add(3*time.Second), 0)) // a quote, 3 s later
+	processor.ProcessRawTicks(context.Background(), msgAt(base.Add(5*time.Second), 100.5))
+
+	if len(emitter.vectors) != 3 {
+		t.Fatalf("want 3 vectors, got %d", len(emitter.vectors))
+	}
+	first, quote, trade := emitter.vectors[0], emitter.vectors[1], emitter.vectors[2]
+
+	if first.HasIntertick != 0 || first.IntertickMs != 0 || first.HasPriceStep != 0 || first.RefPrice != 0 {
+		t.Errorf("first message has no predecessor: got %+v", first)
+	}
+	if quote.HasIntertick != 1 || quote.IntertickMs != 3000 {
+		t.Errorf("quote: want a 3000 ms interval, got has=%d ms=%v", quote.HasIntertick, quote.IntertickMs)
+	}
+	if quote.HasTrade != 0 || quote.HasPriceStep != 0 || quote.PriceStep != 0 || quote.RefPrice != 100 {
+		t.Errorf("quote: no price step, reference is the last trade (100): got %+v", quote)
+	}
+	if trade.IntertickMs != 2000 || trade.HasPriceStep != 1 || math.Abs(trade.PriceStep-0.5) > 1e-9 || trade.RefPrice != 100 {
+		t.Errorf("trade: want interval 2000 ms, step 0.5 from 100: got %+v", trade)
+	}
+}
+
+// TestCusumIsResetOnTheFirstMessageOfANewDay: evidence accumulated on one day must not
+// carry into the next, unless the reset is switched off.
+func TestCusumIsResetOnTheFirstMessageOfANewDay(t *testing.T) {
+	run := func(reset bool) (endOfDay, nextMorning float64) {
+		processor, registry, emitter := processorWithOptions(t)
+		key := model.InstrumentKey{Source: "ETR", InstrumentIdentifier: "SAP.ETR"}
+		registry.GetOrCreate(key) // created with the default limits
+		for _, s := range append([]*stats.RollingStats{registry.GetOrCreate(key).AllSessionStats}, statsOf(registry.GetOrCreate(key))...) {
+			s.Limits.ResetCusumDaily = reset
+		}
+		day1 := time.Date(2021, 11, 10, 10, 0, 0, 0, time.UTC)
+		price := 100.0
+		for i := 0; i < 80; i++ { // growing steps build up the price CUSUM
+			price += 0.01 + 0.01*float64(i)
+			processor.ProcessRawTicks(context.Background(), msgAt(day1.Add(time.Duration(i)*time.Second), price))
+		}
+		endOfDay = emitter.vectors[len(emitter.vectors)-1].CusumPriceStep
+		day2 := time.Date(2021, 11, 11, 9, 30, 0, 0, time.UTC)
+		processor.ProcessRawTicks(context.Background(), msgAt(day2, price))
+		return endOfDay, emitter.vectors[len(emitter.vectors)-1].CusumPriceStep
+	}
+	end, morning := run(true)
+	if end <= 0 {
+		t.Fatalf("test setup: the price CUSUM should have built up on day 1, got %v", end)
+	}
+	if morning != 0 {
+		t.Errorf("with the daily reset the CUSUM must be 0 on the next morning, got %v", morning)
+	}
+	end, morning = run(false)
+	if morning != end {
+		t.Errorf("without the reset the CUSUM carries over: end of day %v, next morning %v", end, morning)
+	}
+}
+
+func statsOf(s *model.InstrumentState) []*stats.RollingStats {
+	out := []*stats.RollingStats{}
+	for _, r := range s.StatsBySession {
+		out = append(out, r)
+	}
+	return out
 }

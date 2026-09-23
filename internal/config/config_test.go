@@ -594,3 +594,22 @@ func TestLoad_SilenceAndPriceWarmupSettings(t *testing.T) {
 		t.Errorf("min_price_observations: got %d, want 20", cfg.Windows.MinPriceObservations)
 	}
 }
+
+func TestLimitsDefaultsAndOverrides(t *testing.T) {
+	var cfg AggregatorConfig
+	l := cfg.Limits()
+	if l.WinsorZ != 10 || !l.ResetCusumDaily {
+		t.Errorf("defaults: want winsor 10 and daily reset, got %v / %v", l.WinsorZ, l.ResetCusumDaily)
+	}
+	off := false
+	cfg.Windows.WinsorZ = -1
+	cfg.CUSUM.ResetDaily = &off
+	l = cfg.Limits()
+	if l.WinsorZ != 0 || l.ResetCusumDaily {
+		t.Errorf("disabled: want winsor 0 and no reset, got %v / %v", l.WinsorZ, l.ResetCusumDaily)
+	}
+	cfg.Windows.WinsorZ = 7
+	if got := cfg.Limits().WinsorZ; got != 7 {
+		t.Errorf("explicit winsor_z: got %v", got)
+	}
+}

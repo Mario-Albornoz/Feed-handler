@@ -275,3 +275,64 @@ func TestCusumStepIsClipped(t *testing.T) {
 		t.Error("with the clip disabled the CUSUM should take the full z-score")
 	}
 }
+
+// TestWinsorizingPreventsMasking: after one extreme price step, a second one on the same
+// instrument must still score high; without winsorizing the first inflates the variance.
+func TestWinsorizingPreventsMasking(t *testing.T) {
+	second := func(winsorZ float64) float64 {
+		rs := NewRollingStats(60, 700, 0.5)
+		rs.Limits.WinsorZ = winsorZ
+		for i := 0; i < 100; i++ {
+			rs.UpdatePriceStep(0.02*float64(i%2), 100)
+		}
+		rs.UpdatePriceStep(200, 100) // a 3x spike: step up ...
+		rs.UpdatePriceStep(200, 300) // ... and back down
+		for i := 0; i < 5; i++ {
+			rs.UpdatePriceStep(0.02*float64(i%2), 100)
+		}
+		z, _ := rs.PriceStepZScores(200, 100)
+		return z
+	}
+	masked, protected := second(0), second(10)
+	if masked > 10 {
+		t.Errorf("without winsorizing the second spike should be masked, got z=%.1f", masked)
+	}
+	if protected < 100 {
+		t.Errorf("with winsorizing the second spike must still stand out, got z=%.1f", protected)
+	}
+}
+
+// TestWinsorizingWaitsForWarmStatistics: during warm-up the averages are plain running
+// averages of the raw values, as before.
+func TestWinsorizingWaitsForWarmStatistics(t *testing.T) {
+	rs := NewRollingStats(60, 14400, 0.5)
+	rs.Limits.WinsorZ = 10
+	values := []float64{1000, 1000, 1000, 60000}
+	for _, v := range values {
+		rs.UpdateIntertick(v)
+	}
+	if want := 15750.0; math.Abs(rs.SlowMeanIntertick-want) > 1e-9 {
+		t.Errorf("warm-up mean must use the unclipped values: got %.2f, want %.2f", rs.SlowMeanIntertick, want)
+	}
+}
+
+// TestWinsorizingKeepsTheScoreUnclipped: only the statistics are clipped, not the score.
+func TestWinsorizingKeepsTheScoreUnclipped(t *testing.T) {
+	rs := NewRollingStats(60, 700, 0.5)
+	for i := 0; i < 100; i++ {
+		rs.UpdateIntertick(1000 * float64(1+i%2))
+	}
+	z, _ := rs.IntertickZScores(600000)
+	if z < 100 {
+		t.Errorf("a 10-minute gap must keep its full z-score, got %.1f", z)
+	}
+}
+
+func TestResetCusumClearsBoth(t *testing.T) {
+	rs := NewRollingStats(60, 700, 0.5)
+	rs.CusumIntertick, rs.CusumPriceStep = 12, 34
+	rs.ResetCusum()
+	if rs.CusumIntertick != 0 || rs.CusumPriceStep != 0 {
+		t.Errorf("got %v/%v", rs.CusumIntertick, rs.CusumPriceStep)
+	}
+}

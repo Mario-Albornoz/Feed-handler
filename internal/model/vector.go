@@ -32,4 +32,17 @@ type NormalizedVector struct {
 	WarmupFlag          int `json:"warmup_flag"`           // 1 if < 50 observations total
 	SessionFallbackFlag int `json:"session_fallback_flag"` // 1 if used fallback instead of session stats
 
+	// The raw measurements the z-scores are computed from, before any normalization, so
+	// an ablation can score the same messages on un-normalized features.
+	// IntertickMs is the time since the instrument's previous message on the feature clock
+	// (whole seconds); HasIntertick is 0 for the first message of an instrument or of a
+	// day, whose IntertickMs is a placeholder 0. PriceStep is the absolute change of the
+	// traded price since the instrument's previous trade (0 unless HasPriceStep), and
+	// RefPrice that previous traded price (0 before the first trade), so the step can be
+	// expressed relative to the price level.
+	IntertickMs  float64 `json:"intertick_ms"`
+	HasIntertick int     `json:"has_intertick"`
+	PriceStep    float64 `json:"price_step"`
+	HasPriceStep int     `json:"has_price_step"`
+	RefPrice     float64 `json:"ref_price"`
 }

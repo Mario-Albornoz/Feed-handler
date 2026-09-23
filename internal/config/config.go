@@ -44,6 +44,9 @@ type WindowConfig struct {
 	// resolution/sqrt(12), the rounding noise. 0 keeps the defaults (1000 ms, 1 bp).
 	TimingResolutionMs float64 `yaml:"timing_resolution_ms"`
 	PriceResolutionBps float64 `yaml:"price_resolution_bps"`
+	// WinsorZ winsorizes the rolling statistics at this many standard deviations (see
+	// stats.Limits.WinsorZ). Omitted keeps the default (10); a negative value disables it.
+	WinsorZ float64 `yaml:"winsor_z"`
 }
 
 type CUSUMConfig struct {
@@ -51,6 +54,9 @@ type CUSUMConfig struct {
 	Threshold float64 `yaml:"threshold"`
 	// ZClip bounds the z-score one observation adds to a CUSUM (0 keeps the default, 10).
 	ZClip float64 `yaml:"z_clip"`
+	// ResetDaily resets each instrument's CUSUMs on its first message of a new day.
+	// Omitted means true.
+	ResetDaily *bool `yaml:"reset_daily"`
 }
 
 // SilenceConfig configures silence detection: an instrument is silent when it has been
@@ -91,11 +97,19 @@ type AlertsConfig struct {
 
 // Limits returns the z-score limits, with the defaults for values left at 0.
 func (cfg *AggregatorConfig) Limits() stats.Limits {
-	return stats.NewLimits(
+	limits := stats.NewLimits(
 		orDefault(cfg.Windows.TimingResolutionMs, stats.DefaultTimingResolutionMs),
 		orDefault(cfg.Windows.PriceResolutionBps, stats.DefaultPriceResolutionBps),
 		orDefault(cfg.CUSUM.ZClip, stats.DefaultCusumZClip),
 	)
+	switch {
+	case cfg.Windows.WinsorZ < 0:
+		limits.WinsorZ = 0 // disabled
+	default:
+		limits.WinsorZ = orDefault(cfg.Windows.WinsorZ, stats.DefaultWinsorZ)
+	}
+	limits.ResetCusumDaily = cfg.CUSUM.ResetDaily == nil || *cfg.CUSUM.ResetDaily
+	return limits
 }
 
 func orDefault(v, def float64) float64 {
